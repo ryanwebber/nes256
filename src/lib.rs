@@ -68,20 +68,37 @@ impl System {
         Stack(&mut self.memory, &mut self.cpu.registers.sp)
     }
 
-    pub fn resolve_addr(&self, operands: [u8; 2], addressing_mode: AddressingMode) -> (u16, bool) {
-        match addressing_mode {
-            AddressingMode::Absolute => (u16::from_le_bytes([operands[0], operands[1]]), false),
-            AddressingMode::Immediate => (*self.cpu.registers.pc + 1, false),
-            AddressingMode::ZeroPage => (operands[0] as u16, false),
-            AddressingMode::ZeroPageX => (
-                (operands[0] as u16)
-                    .wrapping_add(*self.cpu.registers.x as u16),
+    pub fn resolve_addr(&self, operands: &[u8], addressing_mode: AddressingMode) -> (u16, bool) {
+        match (operands, addressing_mode) {
+            ([lo, hi], AddressingMode::Absolute) => (u16::from_le_bytes([*lo, *hi]), false),
+            (_, AddressingMode::Immediate) => (*self.cpu.registers.pc + 1, false),
+            ([lo], AddressingMode::ZeroPage) => (*lo as u16, false),
+            ([lo], AddressingMode::ZeroPageX) => (
+                (*lo as u16).wrapping_add(*self.cpu.registers.x as u16),
                 false,
             ),
-            AddressingMode::Unsupported => {
+            ([lo], AddressingMode::IndirectY) => (
+                u16::from_le_bytes([
+                    self.memory.read_u8(*lo as u16),
+                    self.memory.read_u8((*lo as u16).wrapping_add(1)),
+                ])
+                .wrapping_add(u16::from(*self.cpu.registers.y)),
+                false,
+            ),
+            ([lo], AddressingMode::IndirectX) => {
+                let addr = (*lo as u16).wrapping_add(*self.cpu.registers.x as u16);
+                let lo = self.memory.read_u8(addr);
+                let hi = self.memory.read_u8(addr.wrapping_add(1));
+                (u16::from_le_bytes([lo, hi]), false)
+            }
+            (_, AddressingMode::Unsupported) => {
                 unreachable!("Unsupported addressing mode used: {:?}", addressing_mode)
             }
-            _ => unimplemented!("Addressing mode not implemented: {:?}", addressing_mode),
+            _ => unimplemented!(
+                "Addressing mode {:?} not implemented for operands {:?}",
+                addressing_mode,
+                operands
+            ),
         }
     }
 
@@ -93,28 +110,29 @@ impl System {
         let pc = *self.cpu.registers.pc;
         let op = self.memory.read_u8(*self.cpu.registers.pc);
 
-        let (opcode, instruction) =
-            opcode::lookup(self.memory.read_u8(pc)).ok_or(Error::InvalidOpcode { pc, op })?;
-
-        let operands = [self.memory.read_u8(pc + 1), self.memory.read_u8(pc + 2)];
+        let (opcode, instruction) = opcode::lookup(op).ok_or(Error::InvalidOpcode { pc, op })?;
         let mut instruction_cycles = opcode.cycles;
 
-        {
-            print!(
-                "[{:06}] PC=0x{:04X} {} OP=0x{:02X}",
-                self.cycles, pc, instruction.mnemonic, op
-            );
-            for operand in operands.iter().take(opcode.size as usize - 1) {
-                print!(" 0x{:02X}", operand);
-            }
+        print!(
+            "[{:06}] PC=0x{:04X} {} OP=0x{:02X}",
+            self.cycles, pc, instruction.mnemonic, op
+        );
 
-            println!();
+        let mut operands = [0; 2];
+        let operant_count = (opcode.size - 1) as usize;
+        for (i, operand) in operands.iter_mut().enumerate().take(operant_count) {
+            *operand = self.memory.read_u8(pc + 1 + i as u16);
+            print!(" 0x{:02X}", operand);
         }
+        println!();
 
-        instruction.execute(operands, opcode, self, &mut instruction_cycles);
+        instruction.execute(
+            &operands[..operant_count],
+            opcode,
+            self,
+            &mut instruction_cycles,
+        );
 
-        // If PC was not modified by the instruction, increment it here
-        // to the next instruction (op_code.size - 1 because we already incremented it once)
         if pc == *self.cpu.registers.pc {
             *self.cpu.registers.pc += opcode.size as u16;
         }
@@ -351,12 +369,11 @@ mod tests {
         s2.load(game_code);
         s2.reset();
 
-        for _ in 0..1000 {
+        for _ in 0..100000 {
+            s2.step();
             if let Err(e) = s1.step() {
                 panic!("{}", e);
             }
-
-            s2.step();
 
             assert_eq!(*s1.cpu.registers.a, s2.register_a, "A");
             assert_eq!(*s1.cpu.registers.x, s2.register_x, "X");
