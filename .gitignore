@@ -1,1 +1,6 @@
 /target
+
+# A local reference implementation this project
+# is tested against but is not appropriate to include
+# without adequate attribution
+src/reference/

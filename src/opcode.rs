@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{Interrupt, System};
+use crate::{Interrupt, RegisterIndex, System};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum AddressingMode {
@@ -13,12 +13,13 @@ pub enum AddressingMode {
     AbsoluteY,
     IndirectX,
     IndirectY,
+    Unsupported,
 }
 
 pub struct OpCode {
     pub size: u8,
     pub cycles: u8,
-    pub addressing_mode: Option<AddressingMode>,
+    pub addressing_mode: AddressingMode,
 }
 
 pub struct Instruction {
@@ -48,6 +49,10 @@ lazy_static::lazy_static! {
         for (opcode, opcode_info, instruction) in INSTRUCTIONS {
             table.insert(*opcode, (opcode_info, instruction));
         }
+
+        // TODO: Remove this print statement
+        println!("Loaded {} opcodes...", table.len());
+
         table
     };
 }
@@ -58,7 +63,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         OpCode {
             size: 1,
             cycles: 7,
-            addressing_mode: None,
+            addressing_mode: AddressingMode::Unsupported,
         },
         Instruction {
             mnemonic: "BRK",
@@ -72,16 +77,25 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         OpCode {
             size: 2,
             cycles: 5,
-            addressing_mode: Some(AddressingMode::ZeroPage),
+            addressing_mode: AddressingMode::ZeroPage,
         },
         instructions::ASL,
+    ),
+    (
+        0x09,
+        OpCode {
+            size: 2,
+            cycles: 2,
+            addressing_mode: AddressingMode::Immediate,
+        },
+        instructions::ORA,
     ),
     (
         0x18,
         OpCode {
             size: 1,
             cycles: 2,
-            addressing_mode: None,
+            addressing_mode: AddressingMode::Unsupported,
         },
         Instruction {
             mnemonic: "CLC",
@@ -95,7 +109,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         OpCode {
             size: 3,
             cycles: 6,
-            addressing_mode: Some(AddressingMode::Absolute),
+            addressing_mode: AddressingMode::Absolute,
         },
         Instruction {
             mnemonic: "JSR",
@@ -112,16 +126,32 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         OpCode {
             size: 2,
             cycles: 2,
-            addressing_mode: Some(AddressingMode::Immediate),
+            addressing_mode: AddressingMode::Immediate,
         },
         instructions::AND,
+    ),
+    (
+        0x4C,
+        OpCode {
+            size: 3,
+            cycles: 3,
+            addressing_mode: AddressingMode::Unsupported,
+        },
+        Instruction {
+            mnemonic: "JMP",
+            implementation: |operands, _, system, _| {
+                let (addr_of_addr, _) = system.resolve_addr(operands, AddressingMode::Absolute);
+                let addr = system.memory.read_u16(addr_of_addr);
+                system.cpu.registers.pc.load(addr);
+            },
+        },
     ),
     (
         0x60,
         OpCode {
             size: 1,
             cycles: 6,
-            addressing_mode: None,
+            addressing_mode: AddressingMode::Unsupported,
         },
         Instruction {
             mnemonic: "RTS",
@@ -136,7 +166,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         OpCode {
             size: 2,
             cycles: 2,
-            addressing_mode: Some(AddressingMode::Immediate),
+            addressing_mode: AddressingMode::Immediate,
         },
         instructions::ADC,
     ),
@@ -145,16 +175,25 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         OpCode {
             size: 2,
             cycles: 3,
-            addressing_mode: Some(AddressingMode::ZeroPage),
+            addressing_mode: AddressingMode::ZeroPage,
         },
         instructions::STA,
+    ),
+    (
+        0xA2,
+        OpCode {
+            size: 2,
+            cycles: 2,
+            addressing_mode: AddressingMode::Immediate,
+        },
+        instructions::LDX,
     ),
     (
         0xA5,
         OpCode {
             size: 2,
             cycles: 3,
-            addressing_mode: Some(AddressingMode::ZeroPage),
+            addressing_mode: AddressingMode::ZeroPage,
         },
         instructions::LDA,
     ),
@@ -163,7 +202,16 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         OpCode {
             size: 2,
             cycles: 2,
-            addressing_mode: Some(AddressingMode::Immediate),
+            addressing_mode: AddressingMode::Immediate,
+        },
+        instructions::LDA,
+    ),
+    (
+        0xB5,
+        OpCode {
+            size: 2,
+            cycles: 4,
+            addressing_mode: AddressingMode::ZeroPageX,
         },
         instructions::LDA,
     ),
@@ -172,7 +220,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         OpCode {
             size: 2,
             cycles: 3,
-            addressing_mode: Some(AddressingMode::ZeroPage),
+            addressing_mode: AddressingMode::ZeroPage,
         },
         instructions::CMP,
     ),
@@ -181,7 +229,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         OpCode {
             size: 2,
             cycles: 2,
-            addressing_mode: Some(AddressingMode::Immediate),
+            addressing_mode: AddressingMode::Immediate,
         },
         instructions::CMP,
     ),
@@ -190,7 +238,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         OpCode {
             size: 2,
             cycles: 2,
-            addressing_mode: None,
+            addressing_mode: AddressingMode::Unsupported,
         },
         Instruction {
             mnemonic: "BNE",
@@ -198,7 +246,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
                 if !system.cpu.registers.p.contains(crate::Flags::ZERO) {
                     let pc = *system.cpu.registers.pc;
                     let jump_offset = operands[0] as i8;
-                    let jump_addr = pc.wrapping_add(jump_offset as u16).wrapping_add(1);
+                    let jump_addr = pc.wrapping_add(jump_offset as u16).wrapping_add(2);
                     if pc & 0xFF00 != jump_addr & 0xFF00 {
                         *cycles += 1;
                     }
@@ -209,11 +257,40 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         },
     ),
     (
+        0xE4,
+        OpCode {
+            size: 2,
+            cycles: 3,
+            addressing_mode: AddressingMode::ZeroPage,
+        },
+        instructions::CPX,
+    ),
+    (
+        0xE8,
+        OpCode {
+            size: 1,
+            cycles: 2,
+            addressing_mode: AddressingMode::Unsupported,
+        },
+        Instruction {
+            mnemonic: "INX",
+            implementation: |_, _, system, _| {
+                let x = system.cpu.registers.x.wrapping_add(1);
+                system.cpu.registers.x.load(x);
+                system.cpu.set_register_with_flags(
+                    RegisterIndex::X,
+                    crate::Flags::ZERO_AND_NEGATIVE,
+                    x,
+                );
+            },
+        },
+    ),
+    (
         0xF0,
         OpCode {
             size: 2,
             cycles: 2,
-            addressing_mode: None,
+            addressing_mode: AddressingMode::Unsupported,
         },
         Instruction {
             mnemonic: "BEQ",
@@ -221,7 +298,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
                 if system.cpu.registers.p.contains(crate::Flags::ZERO) {
                     let pc = *system.cpu.registers.pc;
                     let jump_offset = operands[0] as i8;
-                    let jump_addr = pc.wrapping_add(jump_offset as u16).wrapping_add(1);
+                    let jump_addr = pc.wrapping_add(jump_offset as u16).wrapping_add(2);
                     if pc & 0xFF00 != jump_addr & 0xFF00 {
                         *cycles += 1;
                     }
@@ -234,7 +311,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
 ];
 
 mod instructions {
-    use crate::{Flags, System};
+    use crate::{Flags, RegisterIndex, System};
 
     use super::Instruction;
 
@@ -252,7 +329,9 @@ mod instructions {
         system.cpu.registers.a.load(sum);
         system.cpu.registers.p.set(Flags::CARRY, carry);
         system.cpu.registers.p.set(Flags::OVERFLOW, overflow);
-        system.set_accumulator_with_flags(Flags::ZERO_AND_NEGATIVE, sum);
+        system
+            .cpu
+            .set_register_with_flags(RegisterIndex::A, Flags::ZERO_AND_NEGATIVE, sum);
     }
 
     pub const ADC: Instruction = Instruction {
@@ -274,9 +353,13 @@ mod instructions {
         implementation: |operands, opcode, system, cycles| {
             let (addr, page_cross) = system.resolve_addr(operands, opcode.addressing_mode);
             let value = system.memory.read_u8(addr);
-            system.update_accumulator_with_flags(Flags::ZERO_AND_NEGATIVE, |a| {
-                *a &= value;
-            });
+            system.cpu.update_register_with_flags(
+                RegisterIndex::A,
+                Flags::ZERO_AND_NEGATIVE,
+                |a| {
+                    *a &= value;
+                },
+            );
 
             if page_cross {
                 *cycles += 1;
@@ -291,9 +374,11 @@ mod instructions {
             let value = system.memory.read_u8(addr);
             let (result, carry) = value.overflowing_shl(1);
 
-            system.cpu.registers.p.set(Flags::CARRY, carry);
             system.memory.write_u8(addr, result);
-            system.set_accumulator_with_flags(Flags::ZERO_AND_NEGATIVE, result);
+            system.cpu.registers.p.set(Flags::CARRY, carry);
+            system
+                .cpu
+                .set_register_with_flags(RegisterIndex::A, Flags::ZERO_AND_NEGATIVE, result);
         },
     };
 
@@ -306,11 +391,24 @@ mod instructions {
             let result = a.wrapping_sub(value);
 
             system.cpu.registers.p.set(Flags::CARRY, a >= value);
-            system.set_accumulator_with_flags(Flags::ZERO_AND_NEGATIVE, result);
+            system.cpu.update_flags(Flags::ZERO_AND_NEGATIVE, result);
 
             if page_cross {
                 *cycles += 1;
             }
+        },
+    };
+
+    pub const CPX: Instruction = Instruction {
+        mnemonic: "CPX",
+        implementation: |operands, opcode, system, _| {
+            let (addr, _) = system.resolve_addr(operands, opcode.addressing_mode);
+            let value = system.memory.read_u8(addr);
+            let x = *system.cpu.registers.x;
+            let result: u8 = x.wrapping_sub(value);
+
+            system.cpu.registers.p.set(Flags::CARRY, x >= value);
+            system.cpu.update_flags(Flags::ZERO_AND_NEGATIVE, result);
         },
     };
 
@@ -319,7 +417,44 @@ mod instructions {
         implementation: |operands, opcode, system, cycles| {
             let (addr, page_cross) = system.resolve_addr(operands, opcode.addressing_mode);
             let value = system.memory.read_u8(addr);
-            system.set_accumulator_with_flags(Flags::ZERO_AND_NEGATIVE, value);
+            system
+                .cpu
+                .set_register_with_flags(RegisterIndex::A, Flags::ZERO_AND_NEGATIVE, value);
+
+            if page_cross {
+                *cycles += 1;
+            }
+        },
+    };
+
+    pub const LDX: Instruction = Instruction {
+        mnemonic: "LDX",
+        implementation: |operands, opcode, system, cycles| {
+            let (addr, page_cross) = system.resolve_addr(operands, opcode.addressing_mode);
+            let value = system.memory.read_u8(addr);
+            system
+                .cpu
+                .set_register_with_flags(RegisterIndex::X, Flags::ZERO_AND_NEGATIVE, value);
+
+            if page_cross {
+                *cycles += 1;
+            }
+        },
+    };
+
+    pub const ORA: Instruction = Instruction {
+        mnemonic: "ORA",
+        implementation: |operands, opcode, system, cycles| {
+            let (addr, page_cross) = system.resolve_addr(operands, opcode.addressing_mode);
+            let value = system.memory.read_u8(addr);
+            system.cpu.update_register_with_flags(
+                RegisterIndex::A,
+                Flags::ZERO_AND_NEGATIVE,
+                |a| {
+                    *a |= value;
+                },
+            );
+
             if page_cross {
                 *cycles += 1;
             }
@@ -330,6 +465,10 @@ mod instructions {
         mnemonic: "STA",
         implementation: |operands, opcode, system, _| {
             let (addr, ..) = system.resolve_addr(operands, opcode.addressing_mode);
+            println!(
+                "STA: addr={:04X} op[0]={:02X} op[1]={:02X} addr_mode={:?}",
+                addr, operands[0], operands[1], opcode.addressing_mode
+            );
             system.memory.write_u8(addr, *system.cpu.registers.a);
         },
     };

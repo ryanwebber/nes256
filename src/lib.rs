@@ -4,6 +4,9 @@ use opcode::AddressingMode;
 
 mod opcode;
 
+// TODO: Delete this
+mod reference;
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     InvalidOpcode { pc: u16, op: u8 },
@@ -65,18 +68,18 @@ impl System {
         Stack(&mut self.memory, &mut self.cpu.registers.sp)
     }
 
-    pub fn resolve_addr(
-        &self,
-        operands: [u8; 2],
-        addressing_mode: Option<AddressingMode>,
-    ) -> (u16, bool) {
+    pub fn resolve_addr(&self, operands: [u8; 2], addressing_mode: AddressingMode) -> (u16, bool) {
         match addressing_mode {
-            Some(AddressingMode::Absolute) => {
-                (u16::from_le_bytes([operands[0], operands[1]]), false)
-            }
-            Some(AddressingMode::Immediate) => (*self.cpu.registers.pc + 1, false),
-            Some(AddressingMode::ZeroPage) => {
-                (self.memory.read_u8(operands[0] as u16) as u16, false)
+            AddressingMode::Absolute => (u16::from_le_bytes([operands[0], operands[1]]), false),
+            AddressingMode::Immediate => (*self.cpu.registers.pc + 1, false),
+            AddressingMode::ZeroPage => (operands[0] as u16, false),
+            AddressingMode::ZeroPageX => (
+                (operands[0] as u16)
+                    .wrapping_add(*self.cpu.registers.x as u16),
+                false,
+            ),
+            AddressingMode::Unsupported => {
+                unreachable!("Unsupported addressing mode used: {:?}", addressing_mode)
             }
             _ => unimplemented!("Addressing mode not implemented: {:?}", addressing_mode),
         }
@@ -84,24 +87,6 @@ impl System {
 
     pub fn interrupt(&mut self, _interrupt: Interrupt) {
         // TODO
-    }
-
-    pub fn update_accumulator_with_flags(&mut self, mask: Flags, f: impl FnOnce(&mut u8)) {
-        Registers::set_with_flags(
-            &mut self.cpu.registers.a,
-            &mut self.cpu.registers.p,
-            mask,
-            f,
-        );
-    }
-
-    pub fn set_accumulator_with_flags(&mut self, mask: Flags, value: u8) {
-        Registers::set_with_flags(
-            &mut self.cpu.registers.a,
-            &mut self.cpu.registers.p,
-            mask,
-            |a| *a = value,
-        );
     }
 
     pub fn step(&mut self) -> Result<(), Error> {
@@ -151,11 +136,43 @@ impl Cpu {
                 a: Register(0),
                 x: Register(0),
                 y: Register(0),
-                p: Register(Flags::empty()),
+                p: Register(Flags::INTERRUPT_DISABLE | Flags::BREAK2),
                 sp: Register(0xFD),
                 pc: Register(0),
             },
         }
+    }
+
+    pub fn update_flags(&mut self, mask: Flags, value: u8) {
+        if mask.contains(Flags::ZERO) {
+            self.registers.p.0.set(Flags::ZERO, value == 0);
+        }
+
+        if mask.contains(Flags::NEGATIVE) {
+            self.registers.p.0.set(Flags::NEGATIVE, value & 0x80 != 0);
+        }
+    }
+
+    pub fn update_register_with_flags(
+        &mut self,
+        register: RegisterIndex,
+        mask: Flags,
+        f: impl FnOnce(&mut u8),
+    ) {
+        let register = match register {
+            RegisterIndex::A => &mut self.registers.a,
+            RegisterIndex::X => &mut self.registers.x,
+            RegisterIndex::Y => &mut self.registers.y,
+        };
+
+        f(&mut *register);
+
+        let value = **register;
+        self.update_flags(mask, value);
+    }
+
+    pub fn set_register_with_flags(&mut self, register: RegisterIndex, mask: Flags, value: u8) {
+        self.update_register_with_flags(register, mask, |r| *r = value);
     }
 }
 
@@ -164,28 +181,9 @@ pub struct Registers {
     pub a: Register,
     pub x: Register,
     pub y: Register,
-    pub p: Register<Flags>,
-    pub sp: Register<u16>,
+    pub sp: Register,
     pub pc: Register<u16>,
-}
-
-impl Registers {
-    pub fn set_with_flags(
-        register: &mut Register<u8>,
-        flags: &mut Register<Flags>,
-        mask: Flags,
-        f: impl FnOnce(&mut u8),
-    ) {
-        f(&mut *register);
-
-        if mask.contains(Flags::ZERO) {
-            flags.0.set(Flags::ZERO, register.0 == 0);
-        }
-
-        if mask.contains(Flags::NEGATIVE) {
-            flags.0.set(Flags::NEGATIVE, register.0 & 0x80 != 0);
-        }
-    }
+    pub p: Register<Flags>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -213,6 +211,12 @@ impl<T> DerefMut for Register<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
+}
+
+pub enum RegisterIndex {
+    A,
+    X,
+    Y,
 }
 
 bitflags::bitflags! {
@@ -253,10 +257,12 @@ impl Memory {
     }
 
     pub fn write_u8(&mut self, addr: u16, value: u8) {
+        println!("Writing 0x{:02X} to 0x{:04X}", value, addr);
         self.addr_space[addr as usize] = value;
     }
 
     pub fn write_u16(&mut self, addr: u16, value: u16) {
+        println!("Writing 0x{:04X} to 0x{:04X}", value, addr);
         let [lo, hi] = value.to_le_bytes();
         self.write_u8(addr, lo);
         self.write_u8(addr + 1, hi);
@@ -267,21 +273,21 @@ impl Memory {
     }
 }
 
-pub struct Stack<'a>(&'a mut Memory, &'a mut Register<u16>);
+pub struct Stack<'a>(&'a mut Memory, &'a mut Register<u8>);
 
 impl<'a> Stack<'a> {
     const STACK_BASE: u16 = 0x100;
 
     fn push_u8(&mut self, value: u8) {
-        **self.1 -= 1;
         let sp = **self.1;
-        self.0.write_u8(Self::STACK_BASE + sp, value);
+        self.0.write_u8(Self::STACK_BASE + sp as u16, value);
+        **self.1 -= 1;
     }
 
     fn pop_u8(&mut self) -> u8 {
-        let sp = **self.1;
-        let value = self.0.read_u8(Self::STACK_BASE + sp);
         **self.1 += 1;
+        let sp = **self.1;
+        let value = self.0.read_u8(Self::STACK_BASE + sp as u16);
         value
     }
 
@@ -304,6 +310,8 @@ pub enum Interrupt {
 
 #[cfg(test)]
 mod tests {
+    use bitflags::Flags;
+
     use super::*;
 
     #[test]
@@ -334,15 +342,28 @@ mod tests {
             0x60,
         ];
 
-        let mut system = System::new();
-        system.cpu.registers.pc.load(0x0600);
-        system.memory.write_all(0x0600, &game_code);
-        system.memory.write_u16(0xFFFC, 0x0600);
+        let mut s1 = System::new();
+        s1.cpu.registers.pc.load(0x0600);
+        s1.memory.write_all(0x0600, &game_code);
+        s1.memory.write_u16(0xFFFC, 0x0600);
+
+        let mut s2 = reference::CPU::new();
+        s2.load(game_code);
+        s2.reset();
 
         for _ in 0..1000 {
-            if let Err(e) = system.step() {
+            if let Err(e) = s1.step() {
                 panic!("{}", e);
             }
+
+            s2.step();
+
+            assert_eq!(*s1.cpu.registers.a, s2.register_a, "A");
+            assert_eq!(*s1.cpu.registers.x, s2.register_x, "X");
+            assert_eq!(*s1.cpu.registers.y, s2.register_y, "Y");
+            assert_eq!(s1.cpu.registers.p.bits(), s2.status.bits(), "P");
+            assert_eq!(*s1.cpu.registers.sp, s2.stack_pointer, "SP");
+            assert_eq!(*s1.cpu.registers.pc, s2.program_counter, "PC");
         }
 
         assert!(false)
