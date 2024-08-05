@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{Interrupt, RegisterIndex, System};
+use crate::{Flags, Interrupt, RegisterIndex, System};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum AddressingMode {
@@ -123,13 +123,13 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         OpCode {
             size: 3,
             cycles: 6,
-            addressing_mode: AddressingMode::Absolute,
+            addressing_mode: AddressingMode::Unsupported,
         },
         Instruction {
             mnemonic: "JSR",
-            implementation: |operands, opcode, system, _| {
+            implementation: |operands, _, system, _| {
                 let pc = *system.cpu.registers.pc;
-                let (addr, ..) = system.resolve_addr(operands, opcode.addressing_mode);
+                let (addr, ..) = system.resolve_addr(operands, AddressingMode::Absolute);
                 system.stack().push_u16(pc + 2);
                 system.cpu.registers.pc.load(addr);
             },
@@ -152,6 +152,20 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             addressing_mode: AddressingMode::Immediate,
         },
         instructions::AND,
+    ),
+    (
+        0x38,
+        OpCode {
+            size: 1,
+            cycles: 2,
+            addressing_mode: AddressingMode::Unsupported,
+        },
+        Instruction {
+            mnemonic: "SEC",
+            implementation: |_, _, system, _| {
+                system.cpu.registers.p.set(Flags::CARRY, true);
+            },
+        },
     ),
     (
         0x4A,
@@ -218,6 +232,15 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             addressing_mode: AddressingMode::ZeroPage,
         },
         instructions::STA,
+    ),
+    (
+        0x86,
+        OpCode {
+            size: 2,
+            cycles: 3,
+            addressing_mode: AddressingMode::ZeroPage,
+        },
+        instructions::STX,
     ),
     (
         0x8A,
@@ -718,6 +741,14 @@ mod instructions {
         implementation: |operands, opcode, system, _| {
             let (addr, ..) = system.resolve_addr(operands, opcode.addressing_mode);
             system.memory_mapper.write_u8(addr, *system.cpu.registers.a);
+        },
+    };
+
+    pub const STX: Instruction = Instruction {
+        mnemonic: "STX",
+        implementation: |operands, opcode, system, _| {
+            let (addr, ..) = system.resolve_addr(operands, opcode.addressing_mode);
+            system.memory_mapper.write_u8(addr, *system.cpu.registers.x);
         },
     };
 }

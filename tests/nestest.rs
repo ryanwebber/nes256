@@ -133,7 +133,7 @@ fn test_correctness() {
 
     system.cpu.registers.pc.load(0xC000);
 
-    for (i, expected_log) in LOG.lines().enumerate().take(10) {
+    for (i, expected_log) in LOG.lines().enumerate() {
         let actual_log = trace(&system);
 
         println!("[{:>8}] {}", i + 1, actual_log);
