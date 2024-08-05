@@ -53,28 +53,34 @@ impl System {
     pub fn resolve_addr(&self, operands: &[u8], addressing_mode: AddressingMode) -> (u16, bool) {
         match (operands, addressing_mode) {
             ([lo, hi], AddressingMode::Absolute) => (u16::from_le_bytes([*lo, *hi]), false),
-            (_, AddressingMode::Immediate) => (*self.cpu.registers.pc + 1, false),
+            ([_], AddressingMode::Immediate) => (*self.cpu.registers.pc + 1, false),
             ([lo], AddressingMode::ZeroPage) => (*lo as u16, false),
-            ([lo], AddressingMode::ZeroPageX) => (
-                (*lo as u16).wrapping_add(*self.cpu.registers.x as u16),
-                false,
-            ),
+            ([lo], AddressingMode::ZeroPageX) => {
+                (lo.wrapping_add(*self.cpu.registers.x) as u16, false)
+            }
             ([lo], AddressingMode::IndirectY) => (
                 u16::from_le_bytes([
                     self.memory_mapper.read_u8(*lo as u16),
-                    self.memory_mapper.read_u8((*lo as u16).wrapping_add(1)),
+                    self.memory_mapper.read_u8(lo.wrapping_add(1) as u16),
                 ])
-                .wrapping_add(u16::from(*self.cpu.registers.y)),
+                .wrapping_add(*self.cpu.registers.y as u16),
                 false,
             ),
             ([lo], AddressingMode::IndirectX) => {
-                let addr = (*lo as u16).wrapping_add(*self.cpu.registers.x as u16);
-                let lo = self.memory_mapper.read_u8(addr);
-                let hi = self.memory_mapper.read_u8(addr.wrapping_add(1));
+                let addr = lo.wrapping_add(*self.cpu.registers.x);
+                let lo = self.memory_mapper.read_u8(addr as u16);
+                let hi = self.memory_mapper.read_u8(addr.wrapping_add(1) as u16);
                 (u16::from_le_bytes([lo, hi]), false)
             }
-            (_, AddressingMode::Unsupported) => {
-                unreachable!("Unsupported addressing mode used: {:?}", addressing_mode)
+            ([lo, hi], AddressingMode::AbsoluteX) => {
+                let base = u16::from_le_bytes([*lo, *hi]);
+                let addr = base.wrapping_add(*self.cpu.registers.x as u16);
+                (addr, self.memory_mapper.page_cross(base, addr))
+            }
+            ([lo, hi], AddressingMode::AbsoluteY) => {
+                let base = u16::from_le_bytes([*lo, *hi]);
+                let addr = base.wrapping_add(*self.cpu.registers.y as u16);
+                (addr, self.memory_mapper.page_cross(base, addr))
             }
             _ => unimplemented!(
                 "Addressing mode {:?} not implemented for operands {:?}",

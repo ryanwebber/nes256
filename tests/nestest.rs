@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use nes256::{
     memory::{Memory, MemoryMapper, Rom},
     opcode::{self, AddressingMode},
@@ -72,7 +70,7 @@ fn trace(system: &System) -> String {
                         let jmp_addr = if addr & 0x00FF == 0x00FF {
                             let lo = system.memory_mapper.read_u8(addr);
                             let hi = system.memory_mapper.read_u8(addr & 0xFF00);
-                            (hi as u16) << 8 | (lo as u16)
+                            u16::from_le_bytes([lo, hi])
                         } else {
                             system.memory_mapper.read_u16(addr)
                         };
@@ -136,7 +134,7 @@ fn test_correctness() {
     for (i, expected_log) in LOG.lines().enumerate() {
         let actual_log = trace(&system);
 
-        println!("[{:>8}] {}", i + 1, actual_log);
+        println!("[{:>4}] {}", i + 1, actual_log);
 
         // TODO: Start comparing the full log string once the PPU is implemented
         assert_eq!(&actual_log, &expected_log[..73], "Failed on line {}", i + 1);

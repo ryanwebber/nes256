@@ -21,9 +21,9 @@ pub trait Memory {
 
 pub struct Rom {
     prg_rom: Vec<u8>,
-    chr_rom: Vec<u8>,
-    mapper: u8,
-    mirroring: Mirroring,
+    _chr_rom: Vec<u8>,
+    _mapper: u8,
+    _mirroring: Mirroring,
 }
 
 impl Rom {
@@ -61,9 +61,9 @@ impl Rom {
 
         Ok(Rom {
             prg_rom: data[prg_rom_start..(prg_rom_start + prg_rom_size)].to_vec(),
-            chr_rom: data[chr_rom_start..(chr_rom_start + chr_rom_size)].to_vec(),
-            mapper,
-            mirroring,
+            _chr_rom: data[chr_rom_start..(chr_rom_start + chr_rom_size)].to_vec(),
+            _mapper: mapper,
+            _mirroring: mirroring,
         })
     }
 }
@@ -108,6 +108,10 @@ impl MemoryMapper {
             rom: rom.unwrap(),
             vram: [0; 0x800],
         }
+    }
+
+    pub(crate) fn page_cross(&self, addr1: u16, addr2: u16) -> bool {
+        addr1 & 0xFF00 != addr2 & 0xFF00
     }
 }
 
