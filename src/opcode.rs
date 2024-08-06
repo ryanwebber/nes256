@@ -73,6 +73,18 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         instructions::ORA,
     ),
     (
+        0x04,
+        OpCode {
+            size: 2,
+            cycles: 3,
+            addressing_mode: AddressingMode::ZeroPage,
+        },
+        Instruction {
+            mnemonic: "NOP",
+            implementation: |_, _, _, _| {},
+        },
+    ),
+    (
         0x05,
         OpCode {
             size: 2,
@@ -178,6 +190,15 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         instructions::ORA,
     ),
     (
+        0x16,
+        OpCode {
+            size: 2,
+            cycles: 6,
+            addressing_mode: AddressingMode::ZeroPageX,
+        },
+        instructions::ASL,
+    ),
+    (
         0x18,
         OpCode {
             size: 1,
@@ -199,6 +220,24 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             addressing_mode: AddressingMode::AbsoluteY,
         },
         instructions::ORA,
+    ),
+    (
+        0x1D,
+        OpCode {
+            size: 3,
+            cycles: 4,
+            addressing_mode: AddressingMode::AbsoluteX,
+        },
+        instructions::ORA,
+    ),
+    (
+        0x1E,
+        OpCode {
+            size: 3,
+            cycles: 7,
+            addressing_mode: AddressingMode::AbsoluteX,
+        },
+        instructions::ASL,
     ),
     (
         0x20,
@@ -345,6 +384,24 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         instructions::AND,
     ),
     (
+        0x35,
+        OpCode {
+            size: 2,
+            cycles: 4,
+            addressing_mode: AddressingMode::ZeroPageX,
+        },
+        instructions::AND,
+    ),
+    (
+        0x36,
+        OpCode {
+            size: 2,
+            cycles: 6,
+            addressing_mode: AddressingMode::ZeroPageX,
+        },
+        instructions::ROL,
+    ),
+    (
         0x38,
         OpCode {
             size: 1,
@@ -366,6 +423,24 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             addressing_mode: AddressingMode::AbsoluteY,
         },
         instructions::AND,
+    ),
+    (
+        0x3D,
+        OpCode {
+            size: 3,
+            cycles: 4,
+            addressing_mode: AddressingMode::AbsoluteX,
+        },
+        instructions::AND,
+    ),
+    (
+        0x3E,
+        OpCode {
+            size: 3,
+            cycles: 7,
+            addressing_mode: AddressingMode::AbsoluteX,
+        },
+        instructions::ROL,
     ),
     (
         0x40,
@@ -507,6 +582,24 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         instructions::EOR,
     ),
     (
+        0x55,
+        OpCode {
+            size: 2,
+            cycles: 4,
+            addressing_mode: AddressingMode::ZeroPageX,
+        },
+        instructions::EOR,
+    ),
+    (
+        0x56,
+        OpCode {
+            size: 2,
+            cycles: 6,
+            addressing_mode: AddressingMode::ZeroPageX,
+        },
+        instructions::LSR,
+    ),
+    (
         0x59,
         OpCode {
             size: 3,
@@ -514,6 +607,24 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             addressing_mode: AddressingMode::AbsoluteY,
         },
         instructions::EOR,
+    ),
+    (
+        0x5D,
+        OpCode {
+            size: 3,
+            cycles: 4,
+            addressing_mode: AddressingMode::AbsoluteX,
+        },
+        instructions::EOR,
+    ),
+    (
+        0x5E,
+        OpCode {
+            size: 3,
+            cycles: 7,
+            addressing_mode: AddressingMode::AbsoluteX,
+        },
+        instructions::LSR,
     ),
     (
         0x60,
@@ -663,6 +774,24 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         instructions::ADC,
     ),
     (
+        0x75,
+        OpCode {
+            size: 2,
+            cycles: 4,
+            addressing_mode: AddressingMode::ZeroPageX,
+        },
+        instructions::ADC,
+    ),
+    (
+        0x76,
+        OpCode {
+            size: 2,
+            cycles: 6,
+            addressing_mode: AddressingMode::ZeroPageX,
+        },
+        instructions::ROR,
+    ),
+    (
         0x78,
         OpCode {
             size: 1,
@@ -682,6 +811,15 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             size: 3,
             cycles: 4,
             addressing_mode: AddressingMode::AbsoluteY,
+        },
+        instructions::ADC,
+    ),
+    (
+        0x7D,
+        OpCode {
+            size: 3,
+            cycles: 4,
+            addressing_mode: AddressingMode::AbsoluteX,
         },
         instructions::ADC,
     ),
@@ -838,6 +976,15 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         instructions::STA,
     ),
     (
+        0x96,
+        OpCode {
+            size: 2,
+            cycles: 4,
+            addressing_mode: AddressingMode::ZeroPageY,
+        },
+        instructions::STX,
+    ),
+    (
         0x98,
         OpCode {
             size: 1,
@@ -879,6 +1026,15 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
                 system.cpu.registers.sp.load(x);
             },
         },
+    ),
+    (
+        0x9D,
+        OpCode {
+            size: 3,
+            cycles: 5,
+            addressing_mode: AddressingMode::AbsoluteX,
+        },
+        instructions::STA,
     ),
     (
         0xA0,
@@ -1052,6 +1208,15 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         instructions::LDA,
     ),
     (
+        0xB6,
+        OpCode {
+            size: 2,
+            cycles: 4,
+            addressing_mode: AddressingMode::ZeroPageY,
+        },
+        instructions::LDX,
+    ),
+    (
         0xB8,
         OpCode {
             size: 1,
@@ -1092,6 +1257,33 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
                 );
             },
         },
+    ),
+    (
+        0xBC,
+        OpCode {
+            size: 3,
+            cycles: 4,
+            addressing_mode: AddressingMode::AbsoluteX,
+        },
+        instructions::LDY,
+    ),
+    (
+        0xBD,
+        OpCode {
+            size: 3,
+            cycles: 4,
+            addressing_mode: AddressingMode::AbsoluteX,
+        },
+        instructions::LDA,
+    ),
+    (
+        0xBE,
+        OpCode {
+            size: 3,
+            cycles: 4,
+            addressing_mode: AddressingMode::AbsoluteY,
+        },
+        instructions::LDX,
     ),
     (
         0xC0,
@@ -1236,6 +1428,24 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         instructions::CMP,
     ),
     (
+        0xD5,
+        OpCode {
+            size: 2,
+            cycles: 4,
+            addressing_mode: AddressingMode::ZeroPageX,
+        },
+        instructions::CMP,
+    ),
+    (
+        0xD6,
+        OpCode {
+            size: 2,
+            cycles: 6,
+            addressing_mode: AddressingMode::ZeroPageX,
+        },
+        instructions::DEC,
+    ),
+    (
         0xD8,
         OpCode {
             size: 1,
@@ -1257,6 +1467,24 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             addressing_mode: AddressingMode::AbsoluteY,
         },
         instructions::CMP,
+    ),
+    (
+        0xDD,
+        OpCode {
+            size: 3,
+            cycles: 4,
+            addressing_mode: AddressingMode::AbsoluteX,
+        },
+        instructions::CMP,
+    ),
+    (
+        0xDE,
+        OpCode {
+            size: 3,
+            cycles: 7,
+            addressing_mode: AddressingMode::AbsoluteX,
+        },
+        instructions::DEC,
     ),
     (
         0xE0,
@@ -1395,6 +1623,24 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         instructions::SBC,
     ),
     (
+        0xF5,
+        OpCode {
+            size: 2,
+            cycles: 4,
+            addressing_mode: AddressingMode::ZeroPageX,
+        },
+        instructions::SBC,
+    ),
+    (
+        0xF6,
+        OpCode {
+            size: 2,
+            cycles: 6,
+            addressing_mode: AddressingMode::ZeroPageX,
+        },
+        instructions::INC,
+    ),
+    (
         0xF8,
         OpCode {
             size: 1,
@@ -1416,6 +1662,24 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             addressing_mode: AddressingMode::AbsoluteY,
         },
         instructions::SBC,
+    ),
+    (
+        0xFD,
+        OpCode {
+            size: 3,
+            cycles: 4,
+            addressing_mode: AddressingMode::AbsoluteX,
+        },
+        instructions::SBC,
+    ),
+    (
+        0xFE,
+        OpCode {
+            size: 3,
+            cycles: 7,
+            addressing_mode: AddressingMode::AbsoluteX,
+        },
+        instructions::INC,
     ),
 ];
 

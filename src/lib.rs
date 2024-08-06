@@ -58,6 +58,9 @@ impl System {
             ([lo], AddressingMode::ZeroPageX) => {
                 (lo.wrapping_add(*self.cpu.registers.x) as u16, false)
             }
+            ([lo], AddressingMode::ZeroPageY) => {
+                (lo.wrapping_add(*self.cpu.registers.y) as u16, false)
+            }
             ([lo], AddressingMode::IndirectY) => (
                 u16::from_le_bytes([
                     self.memory_mapper.read_u8(*lo as u16),
