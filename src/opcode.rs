@@ -41,7 +41,9 @@ lazy_static::lazy_static! {
     static ref OPCODE_TABLE: HashMap<u8, (&'static OpCode, &'static Instruction)> = {
         let mut table = HashMap::new();
         for (opcode, opcode_info, instruction) in INSTRUCTIONS {
-            table.insert(*opcode, (opcode_info, instruction));
+            if table.insert(*opcode, (opcode_info, instruction)).is_some() {
+                panic!("Duplicate opcode: 0x{:02x}", opcode);
+            }
         }
 
         table
@@ -80,7 +82,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             addressing_mode: AddressingMode::ZeroPage,
         },
         Instruction {
-            mnemonic: "NOP",
+            mnemonic: "*NOP",
             implementation: |_, _, _, _| {},
         },
     ),
@@ -138,6 +140,18 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         instructions::ASL,
     ),
     (
+        0x0C,
+        OpCode {
+            size: 3,
+            cycles: 4,
+            addressing_mode: AddressingMode::Absolute,
+        },
+        Instruction {
+            mnemonic: "*NOP",
+            implementation: |_, _, _, _| {},
+        },
+    ),
+    (
         0x0D,
         OpCode {
             size: 3,
@@ -181,6 +195,18 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         instructions::ORA,
     ),
     (
+        0x14,
+        OpCode {
+            size: 2,
+            cycles: 4,
+            addressing_mode: AddressingMode::ZeroPageX,
+        },
+        Instruction {
+            mnemonic: "*NOP",
+            implementation: |_, _, _, _| {},
+        },
+    ),
+    (
         0x15,
         OpCode {
             size: 2,
@@ -220,6 +246,30 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             addressing_mode: AddressingMode::AbsoluteY,
         },
         instructions::ORA,
+    ),
+    (
+        0x1A,
+        OpCode {
+            size: 1,
+            cycles: 2,
+            addressing_mode: AddressingMode::Unsupported,
+        },
+        Instruction {
+            mnemonic: "*NOP",
+            implementation: |_, _, _, _| {},
+        },
+    ),
+    (
+        0x1C,
+        OpCode {
+            size: 3,
+            cycles: 4,
+            addressing_mode: AddressingMode::AbsoluteX,
+        },
+        Instruction {
+            mnemonic: "*NOP",
+            implementation: |_, _, _, _| {},
+        },
     ),
     (
         0x1D,
@@ -384,6 +434,18 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         instructions::AND,
     ),
     (
+        0x34,
+        OpCode {
+            size: 2,
+            cycles: 4,
+            addressing_mode: AddressingMode::ZeroPageX,
+        },
+        Instruction {
+            mnemonic: "*NOP",
+            implementation: |_, _, _, _| {},
+        },
+    ),
+    (
         0x35,
         OpCode {
             size: 2,
@@ -423,6 +485,30 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             addressing_mode: AddressingMode::AbsoluteY,
         },
         instructions::AND,
+    ),
+    (
+        0x3A,
+        OpCode {
+            size: 1,
+            cycles: 2,
+            addressing_mode: AddressingMode::Unsupported,
+        },
+        Instruction {
+            mnemonic: "*NOP",
+            implementation: |_, _, _, _| {},
+        },
+    ),
+    (
+        0x3C,
+        OpCode {
+            size: 3,
+            cycles: 4,
+            addressing_mode: AddressingMode::AbsoluteX,
+        },
+        Instruction {
+            mnemonic: "*NOP",
+            implementation: |_, _, _, _| {},
+        },
     ),
     (
         0x3D,
@@ -471,6 +557,18 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             addressing_mode: AddressingMode::IndirectX,
         },
         instructions::EOR,
+    ),
+    (
+        0x44,
+        OpCode {
+            size: 2,
+            cycles: 3,
+            addressing_mode: AddressingMode::ZeroPage,
+        },
+        Instruction {
+            mnemonic: "*NOP",
+            implementation: |_, _, _, _| {},
+        },
     ),
     (
         0x45,
@@ -582,6 +680,18 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         instructions::EOR,
     ),
     (
+        0x54,
+        OpCode {
+            size: 2,
+            cycles: 4,
+            addressing_mode: AddressingMode::ZeroPageX,
+        },
+        Instruction {
+            mnemonic: "*NOP",
+            implementation: |_, _, _, _| {},
+        },
+    ),
+    (
         0x55,
         OpCode {
             size: 2,
@@ -607,6 +717,30 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             addressing_mode: AddressingMode::AbsoluteY,
         },
         instructions::EOR,
+    ),
+    (
+        0x5A,
+        OpCode {
+            size: 1,
+            cycles: 2,
+            addressing_mode: AddressingMode::Unsupported,
+        },
+        Instruction {
+            mnemonic: "*NOP",
+            implementation: |_, _, _, _| {},
+        },
+    ),
+    (
+        0x5C,
+        OpCode {
+            size: 3,
+            cycles: 4,
+            addressing_mode: AddressingMode::AbsoluteX,
+        },
+        Instruction {
+            mnemonic: "*NOP",
+            implementation: |_, _, _, _| {},
+        },
     ),
     (
         0x5D,
@@ -649,6 +783,18 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             addressing_mode: AddressingMode::IndirectX,
         },
         instructions::ADC,
+    ),
+    (
+        0x64,
+        OpCode {
+            size: 2,
+            cycles: 3,
+            addressing_mode: AddressingMode::ZeroPage,
+        },
+        Instruction {
+            mnemonic: "*NOP",
+            implementation: |_, _, _, _| {},
+        },
     ),
     (
         0x65,
@@ -774,6 +920,18 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         instructions::ADC,
     ),
     (
+        0x74,
+        OpCode {
+            size: 2,
+            cycles: 4,
+            addressing_mode: AddressingMode::ZeroPageX,
+        },
+        Instruction {
+            mnemonic: "*NOP",
+            implementation: |_, _, _, _| {},
+        },
+    ),
+    (
         0x75,
         OpCode {
             size: 2,
@@ -815,6 +973,30 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         instructions::ADC,
     ),
     (
+        0x7A,
+        OpCode {
+            size: 1,
+            cycles: 2,
+            addressing_mode: AddressingMode::Unsupported,
+        },
+        Instruction {
+            mnemonic: "*NOP",
+            implementation: |_, _, _, _| {},
+        },
+    ),
+    (
+        0x7C,
+        OpCode {
+            size: 3,
+            cycles: 4,
+            addressing_mode: AddressingMode::AbsoluteX,
+        },
+        Instruction {
+            mnemonic: "*NOP",
+            implementation: |_, _, _, _| {},
+        },
+    ),
+    (
         0x7D,
         OpCode {
             size: 3,
@@ -831,6 +1013,18 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             addressing_mode: AddressingMode::AbsoluteX,
         },
         instructions::ROR,
+    ),
+    (
+        0x80,
+        OpCode {
+            size: 2,
+            cycles: 2,
+            addressing_mode: AddressingMode::Immediate,
+        },
+        Instruction {
+            mnemonic: "*NOP",
+            implementation: |_, _, _, _| {},
+        },
     ),
     (
         0x81,
@@ -1428,6 +1622,18 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         instructions::CMP,
     ),
     (
+        0xD4,
+        OpCode {
+            size: 2,
+            cycles: 4,
+            addressing_mode: AddressingMode::ZeroPageX,
+        },
+        Instruction {
+            mnemonic: "*NOP",
+            implementation: |_, _, _, _| {},
+        },
+    ),
+    (
         0xD5,
         OpCode {
             size: 2,
@@ -1467,6 +1673,30 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             addressing_mode: AddressingMode::AbsoluteY,
         },
         instructions::CMP,
+    ),
+    (
+        0xDA,
+        OpCode {
+            size: 1,
+            cycles: 2,
+            addressing_mode: AddressingMode::Unsupported,
+        },
+        Instruction {
+            mnemonic: "*NOP",
+            implementation: |_, _, _, _| {},
+        },
+    ),
+    (
+        0xDC,
+        OpCode {
+            size: 3,
+            cycles: 4,
+            addressing_mode: AddressingMode::AbsoluteX,
+        },
+        Instruction {
+            mnemonic: "*NOP",
+            implementation: |_, _, _, _| {},
+        },
     ),
     (
         0xDD,
@@ -1623,6 +1853,18 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         instructions::SBC,
     ),
     (
+        0xF4,
+        OpCode {
+            size: 2,
+            cycles: 4,
+            addressing_mode: AddressingMode::ZeroPageX,
+        },
+        Instruction {
+            mnemonic: "*NOP",
+            implementation: |_, _, _, _| {},
+        },
+    ),
+    (
         0xF5,
         OpCode {
             size: 2,
@@ -1662,6 +1904,30 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             addressing_mode: AddressingMode::AbsoluteY,
         },
         instructions::SBC,
+    ),
+    (
+        0xFA,
+        OpCode {
+            size: 1,
+            cycles: 2,
+            addressing_mode: AddressingMode::Unsupported,
+        },
+        Instruction {
+            mnemonic: "*NOP",
+            implementation: |_, _, _, _| {},
+        },
+    ),
+    (
+        0xFC,
+        OpCode {
+            size: 3,
+            cycles: 4,
+            addressing_mode: AddressingMode::AbsoluteX,
+        },
+        Instruction {
+            mnemonic: "*NOP",
+            implementation: |_, _, _, _| {},
+        },
     ),
     (
         0xFD,
