@@ -1,12 +1,14 @@
+use crate::ppu::{Control, Ppu};
+
 const NES_TAG: [u8; 4] = [0x4E, 0x45, 0x53, 0x1A];
 const PRG_ROM_PAGE_SIZE: usize = 0x4000;
 const CHR_ROM_PAGE_SIZE: usize = 0x2000;
 
 pub trait Memory {
-    fn read_u8(&self, addr: u16) -> u8;
+    fn read_u8(&mut self, addr: u16) -> u8;
     fn write_u8(&mut self, addr: u16, value: u8);
 
-    fn read_u16(&self, addr: u16) -> u16 {
+    fn read_u16(&mut self, addr: u16) -> u16 {
         let lo = self.read_u8(addr);
         let hi = self.read_u8(addr + 1);
         u16::from_le_bytes([lo, hi])
@@ -21,9 +23,9 @@ pub trait Memory {
 
 pub struct Rom {
     prg_rom: Vec<u8>,
-    _chr_rom: Vec<u8>,
+    chr_rom: Vec<u8>,
     _mapper: u8,
-    _mirroring: Mirroring,
+    mirroring: Mirroring,
 }
 
 impl Rom {
@@ -61,9 +63,9 @@ impl Rom {
 
         Ok(Rom {
             prg_rom: data[prg_rom_start..(prg_rom_start + prg_rom_size)].to_vec(),
-            _chr_rom: data[chr_rom_start..(chr_rom_start + chr_rom_size)].to_vec(),
+            chr_rom: data[chr_rom_start..(chr_rom_start + chr_rom_size)].to_vec(),
             _mapper: mapper,
-            _mirroring: mirroring,
+            mirroring,
         })
     }
 }
@@ -76,15 +78,17 @@ pub enum Mirroring {
 }
 
 pub struct MemoryMapper {
-    rom: Rom,
     vram: [u8; 0x800],
+    prg_rom: Vec<u8>,
+    ppu: Ppu,
 }
 
 impl MemoryMapper {
     pub fn default_with_rom(rom: Rom) -> Self {
         MemoryMapper {
-            rom,
             vram: [0; 0x800],
+            prg_rom: rom.prg_rom,
+            ppu: Ppu::new(rom.chr_rom, rom.mirroring),
         }
     }
 
@@ -102,12 +106,10 @@ impl MemoryMapper {
                 .chain(prg_rom)
                 .chain(chr_rom)
                 .collect::<Vec<_>>()
-        });
+        })
+        .unwrap();
 
-        MemoryMapper {
-            rom: rom.unwrap(),
-            vram: [0; 0x800],
-        }
+        self::MemoryMapper::default_with_rom(rom)
     }
 
     pub(crate) fn page_cross(&self, addr1: u16, addr2: u16) -> bool {
@@ -116,23 +118,33 @@ impl MemoryMapper {
 }
 
 impl Memory for MemoryMapper {
-    fn read_u8(&self, addr: u16) -> u8 {
+    fn read_u8(&mut self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x1FFF => {
                 let mirror_down_addr = addr & 0b00000111_11111111;
                 self.vram[mirror_down_addr as usize]
             }
-            0x2000..=0x3FFF => unimplemented!(
-                "PPU registers not implemented for read from address {:04X}",
-                addr
-            ),
+            0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 | 0x4014 => {
+                panic!("Attempt to read from write-only PPU address 0x{:04X}", addr);
+            }
+            0x2002 => todo!("Read PPU status register"),
+            0x2004 => todo!("Read PPU OAM data"),
+            0x2007 => self.ppu.read_from_data_segment(),
+            0x2008..=0x3FFF => {
+                let mirror_down_addr = addr & 0b00100000_00000111;
+                self.read_u8(mirror_down_addr)
+            }
+            0x4000..=0x4015 => {
+                // TODO: Implement the APU
+                0xFF
+            }
             0x8000..=0xFFFF => {
                 let mut addr = addr - 0x8000;
-                if self.rom.prg_rom.len() == 0x4000 && addr >= 0x4000 {
+                if self.prg_rom.len() == 0x4000 && addr >= 0x4000 {
                     addr = addr % 0x4000;
                 }
 
-                self.rom.prg_rom[addr as usize]
+                self.prg_rom[addr as usize]
             }
             _ => panic!("Invalid read: 0x{:04X}", addr),
         }
@@ -144,11 +156,26 @@ impl Memory for MemoryMapper {
                 let mirror_down_addr = addr & 0b11111111111;
                 self.vram[mirror_down_addr as usize] = value;
             }
-            0x2000..=0x3FFF => {
-                unimplemented!(
-                    "PPU registers not implemented for write to address {:04X}",
-                    addr
-                );
+            0x2000 => {
+                self.ppu
+                    .registers
+                    .control
+                    .load(Control::from_bits_truncate(value));
+            }
+
+            0x2006 => {
+                self.ppu.registers.address.write(value);
+            }
+            0x2007 => {
+                self.ppu.write_to_data_segment(value);
+            }
+
+            0x2008..=0x3FFF => {
+                let mirror_down_addr = addr & 0b00100000_00000111;
+                self.write_u8(mirror_down_addr, value);
+            }
+            0x4000..=0x4013 | 0x4015 => {
+                // TODO: Implement the APU
             }
             0x8000..=0xFFFF => panic!(
                 "Attempted to write to cartridge ROM at address {:04X}",

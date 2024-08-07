@@ -1,5 +1,6 @@
 pub mod memory;
 pub mod opcode;
+pub mod ppu;
 
 use std::ops::{Deref, DerefMut};
 
@@ -39,8 +40,8 @@ impl System {
     }
 
     pub fn with_rom(rom: Rom) -> System {
-        let memory_mapper = MemoryMapper::default_with_rom(rom);
         let mut cpu = Cpu::new();
+        let mut memory_mapper = MemoryMapper::default_with_rom(rom);
         *cpu.registers.pc = memory_mapper.read_u16(0xFFFC);
 
         System { cpu, memory_mapper }
@@ -50,7 +51,11 @@ impl System {
         Stack(&mut self.memory_mapper, &mut self.cpu.registers.sp)
     }
 
-    pub fn resolve_addr(&self, operands: &[u8], addressing_mode: AddressingMode) -> (u16, bool) {
+    pub fn resolve_addr(
+        &mut self,
+        operands: &[u8],
+        addressing_mode: AddressingMode,
+    ) -> (u16, bool) {
         match (operands, addressing_mode) {
             ([lo, hi], AddressingMode::Absolute) => (u16::from_le_bytes([*lo, *hi]), false),
             ([_], AddressingMode::Immediate) => (*self.cpu.registers.pc + 1, false),

@@ -3407,6 +3407,10 @@ mod tests {
 
     #[test]
     fn test_opcode_ordering() {
+        // Ensure that the opcode values are in order, so that we can index
+        // the instructions array by opcode. We keep the opcode value as part
+        // of the structure because it makes it significantly easier to
+        // search for an opcode by it's opcode value.
         for (i, (opcode, ..)) in INSTRUCTIONS.iter().enumerate() {
             assert_eq!(
                 i as u8, *opcode,

@@ -4,7 +4,7 @@ use nes256::{
     System,
 };
 
-fn trace(system: &System) -> String {
+fn trace(system: &mut System) -> String {
     let pc = *system.cpu.registers.pc;
     let op = system.memory_mapper.read_u8(pc);
     let (opcode, instruction) = opcode::lookup(op);
@@ -131,7 +131,7 @@ fn test_correctness() {
     system.cpu.registers.pc.load(0xC000);
 
     for (i, expected_log) in LOG.lines().enumerate() {
-        let actual_log = trace(&system);
+        let actual_log = trace(&mut system);
 
         println!("[{:>4}] {}", i + 1, actual_log);
 
