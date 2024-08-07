@@ -101,7 +101,7 @@ impl System {
         let pc = *self.cpu.registers.pc;
         let op = self.memory_mapper.read_u8(*self.cpu.registers.pc);
 
-        let (opcode, instruction) = opcode::lookup(op).ok_or(Error::InvalidOpcode { pc, op })?;
+        let (opcode, instruction) = opcode::lookup(op);
         let mut instruction_cycles = opcode.cycles;
 
         let mut operands = [0; 2];
@@ -130,6 +130,7 @@ impl System {
 pub struct Cpu {
     pub cycles: u64,
     pub registers: Registers,
+    pub halted: bool,
 }
 
 impl Cpu {
@@ -144,6 +145,7 @@ impl Cpu {
                 sp: Register(0xFD),
                 pc: Register(0),
             },
+            halted: false,
         }
     }
 
@@ -177,6 +179,10 @@ impl Cpu {
 
     pub fn set_register_with_flags(&mut self, register: RegisterIndex, mask: Flags, value: u8) {
         self.update_register_with_flags(register, mask, |r| *r = value);
+    }
+
+    pub fn halt(&mut self) {
+        self.halted = true;
     }
 }
 

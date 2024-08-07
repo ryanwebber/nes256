@@ -7,8 +7,7 @@ use nes256::{
 fn trace(system: &System) -> String {
     let pc = *system.cpu.registers.pc;
     let op = system.memory_mapper.read_u8(pc);
-    let (opcode, instruction) =
-        opcode::lookup(op).expect(&format!("Opcode not implemented: 0x{:02x}", op));
+    let (opcode, instruction) = opcode::lookup(op);
 
     let instruction_data: Vec<u8> = [op]
         .iter()

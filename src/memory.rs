@@ -134,7 +134,7 @@ impl Memory for MemoryMapper {
 
                 self.rom.prg_rom[addr as usize]
             }
-            _ => panic!("Invalid read: {:04X}", addr),
+            _ => panic!("Invalid read: 0x{:04X}", addr),
         }
     }
 
