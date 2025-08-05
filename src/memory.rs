@@ -1,4 +1,6 @@
-use crate::ppu::{Control, Ppu};
+use bitflags::Flags;
+
+use crate::ppu::{ControlFlags, MaskFlags, Ppu};
 
 const NES_TAG: [u8; 4] = [0x4E, 0x45, 0x53, 0x1A];
 const PRG_ROM_PAGE_SIZE: usize = 0x4000;
@@ -127,7 +129,7 @@ impl Memory for MemoryMapper {
             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 | 0x4014 => {
                 panic!("Attempt to read from write-only PPU address 0x{:04X}", addr);
             }
-            0x2002 => todo!("Read PPU status register"),
+            0x2002 => self.ppu.read_and_clear_status_register().bits(),
             0x2004 => todo!("Read PPU OAM data"),
             0x2007 => self.ppu.read_from_data_segment(),
             0x2008..=0x3FFF => {
@@ -156,15 +158,18 @@ impl Memory for MemoryMapper {
                 let mirror_down_addr = addr & 0b11111111111;
                 self.vram[mirror_down_addr as usize] = value;
             }
-            0x2000 => {
-                self.ppu
-                    .registers
-                    .control
-                    .load(Control::from_bits_truncate(value));
+            0x2000 => self
+                .ppu
+                .write_to_control_register(ControlFlags::from_bits_truncate(value)),
+            0x2001 => self
+                .ppu
+                .write_to_mask_register(MaskFlags::from_bits_truncate(value)),
+            0x2002 => panic!("Attempt to write to read-only PPU status register"),
+            0x2005 => {
+                self.ppu.write_to_scroll_register(value);
             }
-
             0x2006 => {
-                self.ppu.registers.address.write(value);
+                self.ppu.write_to_data_address_register(value);
             }
             0x2007 => {
                 self.ppu.write_to_data_segment(value);
