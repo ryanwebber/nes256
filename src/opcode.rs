@@ -825,7 +825,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             mnemonic: "*ASR",
             implementation: |operands, opcode, system, _| {
                 let (addr, _) = system.resolve_addr(operands, opcode.addressing_mode);
-                let value = system.memory_mapper.read_u8(addr);
+                let value = system.memory().read_u8(addr);
                 let value = value & *system.cpu.registers.a;
 
                 let carry = value & 1 != 0;
@@ -1181,7 +1181,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             mnemonic: "*ARR",
             implementation: |operands, opcode, system, _| {
                 let (addr, _) = system.resolve_addr(operands, opcode.addressing_mode);
-                let value = system.memory_mapper.read_u8(addr);
+                let value = system.memory().read_u8(addr);
                 let value = value & *system.cpu.registers.a;
                 let value = value >> 1;
 
@@ -1217,11 +1217,11 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
 
                 // I don't fully understand this, so it may be incorrect
                 let jmp_addr = if addr & 0x00FF == 0x00FF {
-                    let lo = system.memory_mapper.read_u8(addr);
-                    let hi = system.memory_mapper.read_u8(addr & 0xFF00);
+                    let lo = system.memory().read_u8(addr);
+                    let hi = system.memory().read_u8(addr & 0xFF00);
                     u16::from_le_bytes([lo, hi])
                 } else {
-                    system.memory_mapper.read_u16(addr)
+                    system.memory().read_u16(addr)
                 };
 
                 system.cpu.registers.pc.load(jmp_addr);
@@ -1745,7 +1745,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
                 let y = *system.cpu.registers.y;
                 let result = y & high_byte;
 
-                system.memory_mapper.write_u8(addr, result);
+                system.memory().write_u8(addr, result);
             },
         },
     ),
@@ -1911,7 +1911,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             mnemonic: "*LAX",
             implementation: |operands, opcode, system, _| {
                 let (addr, _) = system.resolve_addr(operands, opcode.addressing_mode);
-                let value = system.memory_mapper.read_u8(addr) & *system.cpu.registers.a;
+                let value = system.memory().read_u8(addr) & *system.cpu.registers.a;
                 system.cpu.update_flags(Flags::ZERO_AND_NEGATIVE, value);
                 system.cpu.registers.a.load(value);
                 system.cpu.registers.x.load(value);
@@ -2087,7 +2087,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             implementation: |operands, opcode, system, cycles| {
                 let (addr, page_cross) = system.resolve_addr(operands, opcode.addressing_mode);
                 let sp = *system.cpu.registers.sp;
-                let value = system.memory_mapper.read_u8(addr) & sp;
+                let value = system.memory().read_u8(addr) & sp;
                 system.cpu.update_flags(Flags::ZERO_AND_NEGATIVE, value);
                 system.cpu.registers.a.load(value);
                 system.cpu.registers.x.load(value);
@@ -2841,9 +2841,9 @@ mod instructions {
             }
             _ => {
                 let (addr, _) = system.resolve_addr(operands, addressing_mode);
-                let value = system.memory_mapper.read_u8(addr);
+                let value = system.memory().read_u8(addr);
                 let result = f(value, system);
-                system.memory_mapper.write_u8(addr, result);
+                system.memory().write_u8(addr, result);
                 result
             }
         }
@@ -2871,7 +2871,7 @@ mod instructions {
         mnemonic: "ADC",
         implementation: |operands, opcode, system, cycles| {
             let (addr, page_cross) = system.resolve_addr(operands, opcode.addressing_mode);
-            let value = system.memory_mapper.read_u8(addr);
+            let value = system.memory().read_u8(addr);
 
             add_to_accumulator(system, value);
 
@@ -2885,7 +2885,7 @@ mod instructions {
         mnemonic: "AND",
         implementation: |operands, opcode, system, cycles| {
             let (addr, page_cross) = system.resolve_addr(operands, opcode.addressing_mode);
-            let value = system.memory_mapper.read_u8(addr);
+            let value = system.memory().read_u8(addr);
             system.cpu.update_register_with_flags(
                 RegisterIndex::A,
                 Flags::ZERO_AND_NEGATIVE,
@@ -2924,7 +2924,7 @@ mod instructions {
         mnemonic: "BIT",
         implementation: |operands, opcode, system, _| {
             let (addr, _) = system.resolve_addr(operands, opcode.addressing_mode);
-            let value = system.memory_mapper.read_u8(addr);
+            let value = system.memory().read_u8(addr);
             let a = *system.cpu.registers.a;
             let result = a & value;
 
@@ -2948,7 +2948,7 @@ mod instructions {
         mnemonic: "CMP",
         implementation: |operands, opcode, system, cycles| {
             let (addr, page_cross) = system.resolve_addr(operands, opcode.addressing_mode);
-            let value = system.memory_mapper.read_u8(addr);
+            let value = system.memory().read_u8(addr);
             let a = *system.cpu.registers.a;
             let result = a.wrapping_sub(value);
 
@@ -2965,7 +2965,7 @@ mod instructions {
         mnemonic: "CPX",
         implementation: |operands, opcode, system, _| {
             let (addr, _) = system.resolve_addr(operands, opcode.addressing_mode);
-            let value = system.memory_mapper.read_u8(addr);
+            let value = system.memory().read_u8(addr);
             let x = *system.cpu.registers.x;
             let result: u8 = x.wrapping_sub(value);
 
@@ -2978,7 +2978,7 @@ mod instructions {
         mnemonic: "CPY",
         implementation: |operands, opcode, system, _| {
             let (addr, _) = system.resolve_addr(operands, opcode.addressing_mode);
-            let value = system.memory_mapper.read_u8(addr);
+            let value = system.memory().read_u8(addr);
             let y = *system.cpu.registers.y;
             let result: u8 = y.wrapping_sub(value);
 
@@ -2991,10 +2991,10 @@ mod instructions {
         mnemonic: "DEC",
         implementation: |operands, opcode, system, _| {
             let (addr, _) = system.resolve_addr(operands, opcode.addressing_mode);
-            let value = system.memory_mapper.read_u8(addr);
+            let value = system.memory().read_u8(addr);
             let result = value.wrapping_sub(1);
 
-            system.memory_mapper.write_u8(addr, result);
+            system.memory().write_u8(addr, result);
             system.cpu.update_flags(Flags::ZERO_AND_NEGATIVE, result);
         },
     };
@@ -3003,7 +3003,7 @@ mod instructions {
         mnemonic: "EOR",
         implementation: |operands, opcode, system, cycles| {
             let (addr, page_cross) = system.resolve_addr(operands, opcode.addressing_mode);
-            let value = system.memory_mapper.read_u8(addr);
+            let value = system.memory().read_u8(addr);
             system.cpu.update_register_with_flags(
                 RegisterIndex::A,
                 Flags::ZERO_AND_NEGATIVE,
@@ -3022,10 +3022,10 @@ mod instructions {
         mnemonic: "INC",
         implementation: |operands, opcode, system, _| {
             let (addr, _) = system.resolve_addr(operands, opcode.addressing_mode);
-            let value = system.memory_mapper.read_u8(addr);
+            let value = system.memory().read_u8(addr);
             let result = value.wrapping_add(1);
 
-            system.memory_mapper.write_u8(addr, result);
+            system.memory().write_u8(addr, result);
             system.cpu.update_flags(Flags::ZERO_AND_NEGATIVE, result);
         },
     };
@@ -3034,7 +3034,7 @@ mod instructions {
         mnemonic: "LDA",
         implementation: |operands, opcode, system, cycles| {
             let (addr, page_cross) = system.resolve_addr(operands, opcode.addressing_mode);
-            let value = system.memory_mapper.read_u8(addr);
+            let value = system.memory().read_u8(addr);
             system
                 .cpu
                 .set_register_with_flags(RegisterIndex::A, Flags::ZERO_AND_NEGATIVE, value);
@@ -3049,7 +3049,7 @@ mod instructions {
         mnemonic: "LDX",
         implementation: |operands, opcode, system, cycles| {
             let (addr, page_cross) = system.resolve_addr(operands, opcode.addressing_mode);
-            let value = system.memory_mapper.read_u8(addr);
+            let value = system.memory().read_u8(addr);
             system
                 .cpu
                 .set_register_with_flags(RegisterIndex::X, Flags::ZERO_AND_NEGATIVE, value);
@@ -3064,7 +3064,7 @@ mod instructions {
         mnemonic: "LDY",
         implementation: |operands, opcode, system, cycles| {
             let (addr, page_cross) = system.resolve_addr(operands, opcode.addressing_mode);
-            let value = system.memory_mapper.read_u8(addr);
+            let value = system.memory().read_u8(addr);
             system
                 .cpu
                 .set_register_with_flags(RegisterIndex::Y, Flags::ZERO_AND_NEGATIVE, value);
@@ -3099,7 +3099,7 @@ mod instructions {
         mnemonic: "ORA",
         implementation: |operands, opcode, system, cycles| {
             let (addr, page_cross) = system.resolve_addr(operands, opcode.addressing_mode);
-            let value = system.memory_mapper.read_u8(addr);
+            let value = system.memory().read_u8(addr);
             system.cpu.update_register_with_flags(
                 RegisterIndex::A,
                 Flags::ZERO_AND_NEGATIVE,
@@ -3168,7 +3168,7 @@ mod instructions {
         mnemonic: "SBC",
         implementation: |operands, opcode, system, cycles| {
             let (addr, page_cross) = system.resolve_addr(operands, opcode.addressing_mode);
-            let value = system.memory_mapper.read_u8(addr) as i8;
+            let value = system.memory().read_u8(addr) as i8;
             let value = value.wrapping_neg().wrapping_sub(1);
             add_to_accumulator(system, value as u8);
 
@@ -3182,7 +3182,8 @@ mod instructions {
         mnemonic: "STA",
         implementation: |operands, opcode, system, _| {
             let (addr, ..) = system.resolve_addr(operands, opcode.addressing_mode);
-            system.memory_mapper.write_u8(addr, *system.cpu.registers.a);
+            let reg_a = *system.cpu.registers.a;
+            system.memory().write_u8(addr, reg_a);
         },
     };
 
@@ -3190,7 +3191,8 @@ mod instructions {
         mnemonic: "STX",
         implementation: |operands, opcode, system, _| {
             let (addr, ..) = system.resolve_addr(operands, opcode.addressing_mode);
-            system.memory_mapper.write_u8(addr, *system.cpu.registers.x);
+            let reg_x = *system.cpu.registers.x;
+            system.memory().write_u8(addr, reg_x);
         },
     };
 
@@ -3198,7 +3200,8 @@ mod instructions {
         mnemonic: "STY",
         implementation: |operands, opcode, system, _| {
             let (addr, ..) = system.resolve_addr(operands, opcode.addressing_mode);
-            system.memory_mapper.write_u8(addr, *system.cpu.registers.y);
+            let reg_y = *system.cpu.registers.y;
+            system.memory().write_u8(addr, reg_y);
         },
     };
 
@@ -3206,7 +3209,7 @@ mod instructions {
         mnemonic: "*ANC",
         implementation: |operands, opcode, system, _| {
             let (addr, _) = system.resolve_addr(operands, opcode.addressing_mode);
-            let value = system.memory_mapper.read_u8(addr);
+            let value = system.memory().read_u8(addr);
             let a = *system.cpu.registers.a;
             system.cpu.registers.a.load(a & value);
             system.cpu.registers.p.set(Flags::CARRY, a & 0x80 != 0);
@@ -3218,9 +3221,9 @@ mod instructions {
         mnemonic: "*DCP",
         implementation: |operands, opcode, system, _| {
             let (addr, _) = system.resolve_addr(operands, opcode.addressing_mode);
-            let value = system.memory_mapper.read_u8(addr).wrapping_sub(1);
+            let value = system.memory().read_u8(addr).wrapping_sub(1);
             let a = *system.cpu.registers.a;
-            system.memory_mapper.write_u8(addr, value);
+            system.memory().write_u8(addr, value);
             system.cpu.registers.p.set(Flags::CARRY, value <= a);
             system
                 .cpu
@@ -3232,13 +3235,13 @@ mod instructions {
         mnemonic: "*ISB",
         implementation: |operands, opcode, system, _| {
             let (addr, _) = system.resolve_addr(operands, opcode.addressing_mode);
-            let value = system.memory_mapper.read_u8(addr);
+            let value = system.memory().read_u8(addr);
             let result = value.wrapping_add(1);
 
-            system.memory_mapper.write_u8(addr, result);
+            system.memory().write_u8(addr, result);
             system.cpu.update_flags(Flags::ZERO_AND_NEGATIVE, result);
 
-            let value = system.memory_mapper.read_u8(addr) as i8;
+            let value = system.memory().read_u8(addr) as i8;
             let value = value.wrapping_neg().wrapping_sub(1);
             add_to_accumulator(system, value as u8);
         },
@@ -3255,7 +3258,7 @@ mod instructions {
         mnemonic: "*LAX",
         implementation: |operands, opcode, system, cycles| {
             let (addr, page_cross) = system.resolve_addr(operands, opcode.addressing_mode);
-            let value = system.memory_mapper.read_u8(addr);
+            let value = system.memory().read_u8(addr);
             system.cpu.registers.a.load(value);
             system.cpu.registers.x.load(value);
             system.cpu.update_flags(Flags::ZERO_AND_NEGATIVE, value);
@@ -3331,7 +3334,7 @@ mod instructions {
         implementation: |operands, opcode, system, _| {
             let (addr, _) = system.resolve_addr(operands, opcode.addressing_mode);
             let value = *system.cpu.registers.a & *system.cpu.registers.x;
-            system.memory_mapper.write_u8(addr, value);
+            system.memory().write_u8(addr, value);
         },
     };
 
@@ -3340,7 +3343,7 @@ mod instructions {
         implementation: |operands, opcode, system, _| {
             let (addr, _) = system.resolve_addr(operands, opcode.addressing_mode);
             let value = *system.cpu.registers.a & *system.cpu.registers.x & 0x7;
-            system.memory_mapper.write_u8(addr, value);
+            system.memory().write_u8(addr, value);
         },
     };
 

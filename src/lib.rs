@@ -4,8 +4,13 @@ pub mod ppu;
 
 use std::ops::{Deref, DerefMut};
 
-use memory::{Memory, MemoryMapper, Rom};
+use memory::{Memory, Rom};
 use opcode::AddressingMode;
+
+use crate::{
+    memory::{MemoryBus, MemorySnapshot},
+    ppu::Ppu,
+};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
@@ -30,25 +35,30 @@ impl std::fmt::Display for Error {
 
 pub struct System {
     pub cpu: Cpu,
-    pub memory_mapper: MemoryMapper,
+    pub ppu: Ppu,
+    pub bus: MemoryBus,
 }
 
 impl System {
-    pub fn new(memory_mapper: MemoryMapper) -> Self {
-        let cpu = Cpu::new();
-        System { cpu, memory_mapper }
+    pub fn new(bus: MemoryBus) -> Self {
+        System {
+            cpu: Cpu::new(),
+            ppu: Ppu::new(bus.rom.mirroring),
+            bus,
+        }
     }
 
     pub fn with_rom(rom: Rom) -> System {
+        let mut bus = MemoryBus::default_with_rom(rom);
+        let mut ppu = Ppu::new(bus.rom.mirroring);
         let mut cpu = Cpu::new();
-        let mut memory_mapper = MemoryMapper::default_with_rom(rom);
-        *cpu.registers.pc = memory_mapper.read_u16(0xFFFC);
+        *cpu.registers.pc = bus.snapshot(&mut ppu).read_u16(0xFFFC);
 
-        System { cpu, memory_mapper }
+        System { cpu, ppu, bus }
     }
 
-    pub fn stack(&mut self) -> Stack {
-        Stack(&mut self.memory_mapper, &mut self.cpu.registers.sp)
+    pub fn stack<'a>(&'a mut self) -> Stack<'a> {
+        Stack(self.bus.snapshot(&mut self.ppu), &mut self.cpu.registers.sp)
     }
 
     pub fn resolve_addr(
@@ -68,27 +78,27 @@ impl System {
             }
             ([lo], AddressingMode::IndirectY) => (
                 u16::from_le_bytes([
-                    self.memory_mapper.read_u8(*lo as u16),
-                    self.memory_mapper.read_u8(lo.wrapping_add(1) as u16),
+                    self.memory().read_u8(*lo as u16),
+                    self.memory().read_u8(lo.wrapping_add(1) as u16),
                 ])
                 .wrapping_add(*self.cpu.registers.y as u16),
                 false,
             ),
             ([lo], AddressingMode::IndirectX) => {
                 let addr = lo.wrapping_add(*self.cpu.registers.x);
-                let lo = self.memory_mapper.read_u8(addr as u16);
-                let hi = self.memory_mapper.read_u8(addr.wrapping_add(1) as u16);
+                let lo = self.memory().read_u8(addr as u16);
+                let hi = self.memory().read_u8(addr.wrapping_add(1) as u16);
                 (u16::from_le_bytes([lo, hi]), false)
             }
             ([lo, hi], AddressingMode::AbsoluteX) => {
                 let base = u16::from_le_bytes([*lo, *hi]);
                 let addr = base.wrapping_add(*self.cpu.registers.x as u16);
-                (addr, self.memory_mapper.page_cross(base, addr))
+                (addr, self.memory().page_cross(base, addr))
             }
             ([lo, hi], AddressingMode::AbsoluteY) => {
                 let base = u16::from_le_bytes([*lo, *hi]);
                 let addr = base.wrapping_add(*self.cpu.registers.y as u16);
-                (addr, self.memory_mapper.page_cross(base, addr))
+                (addr, self.memory().page_cross(base, addr))
             }
             _ => unimplemented!(
                 "Addressing mode {:?} not implemented for operands {:?}",
@@ -104,7 +114,7 @@ impl System {
 
     pub fn step(&mut self) -> Result<(), Error> {
         let pc = *self.cpu.registers.pc;
-        let op = self.memory_mapper.read_u8(*self.cpu.registers.pc);
+        let op = self.memory().read_u8(pc);
 
         let (opcode, instruction) = opcode::lookup(op);
         let mut instruction_cycles = opcode.cycles;
@@ -112,7 +122,7 @@ impl System {
         let mut operands = [0; 2];
         let operant_count = (opcode.size - 1) as usize;
         for (i, operand) in operands.iter_mut().enumerate().take(operant_count) {
-            *operand = self.memory_mapper.read_u8(pc + 1 + i as u16);
+            *operand = self.memory().read_u8(pc + 1 + i as u16);
         }
 
         instruction.execute(
@@ -129,6 +139,10 @@ impl System {
         self.cpu.cycles += u64::from(instruction_cycles);
 
         Ok(())
+    }
+
+    pub fn memory<'a>(&'a mut self) -> MemorySnapshot<'a> {
+        self.bus.snapshot(&mut self.ppu)
     }
 }
 
@@ -261,7 +275,7 @@ pub enum Interrupt {
     Break,
 }
 
-pub struct Stack<'a>(&'a mut MemoryMapper, &'a mut Register<u8>);
+pub struct Stack<'a>(MemorySnapshot<'a>, &'a mut Register<u8>);
 
 impl<'a> Stack<'a> {
     const STACK_BASE: u16 = 0x100;

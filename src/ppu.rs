@@ -4,19 +4,17 @@ pub struct Ppu {
     pub vram: [u8; 2048],
     pub palettes: [u8; 32],
     pub oam_data: [u8; 256],
-    pub chr_rom: Vec<u8>,
     pub mirroring: Mirroring,
     registers: Registers,
     previous_read: u8,
 }
 
 impl Ppu {
-    pub fn new(chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+    pub fn new(mirroring: Mirroring) -> Self {
         Ppu {
             vram: [0; 2048],
             palettes: [0; 32],
             oam_data: [0; 256],
-            chr_rom,
             mirroring,
             previous_read: 0,
             registers: Registers {
@@ -74,14 +72,14 @@ impl Ppu {
         status
     }
 
-    pub fn read_from_data_segment(&mut self) -> u8 {
+    pub fn read_from_data_segment(&mut self, chr_rom: &[u8]) -> u8 {
         let addr = self.registers.address.read();
         self.increment_vram_addr();
 
         match addr {
             0..=0x1fff => {
                 let result = self.previous_read;
-                self.previous_read = self.chr_rom[addr as usize];
+                self.previous_read = chr_rom[addr as usize];
                 result
             }
             0x2000..=0x2fff => {

@@ -1,25 +1,25 @@
 use nes256::{
-    memory::{Memory, MemoryMapper, Rom},
+    memory::{Memory, MemoryBus, Rom},
     opcode::{self, AddressingMode},
     System,
 };
 
 fn trace(system: &mut System) -> String {
     let pc = *system.cpu.registers.pc;
-    let op = system.memory_mapper.read_u8(pc);
+    let op = system.memory().read_u8(pc);
     let (opcode, instruction) = opcode::lookup(op);
 
     let instruction_data: Vec<u8> = [op]
         .iter()
         .copied()
-        .chain((1..opcode.size).map(|i| system.memory_mapper.read_u8(pc + i as u16)))
+        .chain((1..opcode.size).map(|i| system.memory().read_u8(pc + i as u16)))
         .collect::<Vec<_>>();
 
     let (mem_addr, stored_value) = match opcode.addressing_mode {
         AddressingMode::Immediate | AddressingMode::Unsupported => (0u16, 0u8),
         _ => {
             let (addr, _) = system.resolve_addr(&instruction_data[1..], opcode.addressing_mode);
-            (addr, system.memory_mapper.read_u8(addr))
+            (addr, system.memory().read_u8(addr))
         }
     };
 
@@ -67,11 +67,11 @@ fn trace(system: &mut System) -> String {
                     if *op == 0x6c {
                         // Special case for jump indirect
                         let jmp_addr = if addr & 0x00FF == 0x00FF {
-                            let lo = system.memory_mapper.read_u8(addr);
-                            let hi = system.memory_mapper.read_u8(addr & 0xFF00);
+                            let lo = system.memory().read_u8(addr);
+                            let hi = system.memory().read_u8(addr & 0xFF00);
                             u16::from_le_bytes([lo, hi])
                         } else {
-                            system.memory_mapper.read_u16(addr)
+                            system.memory().read_u16(addr)
                         };
 
                         format!("(${:04x}) = {:04x}", addr, jmp_addr)
@@ -125,8 +125,8 @@ fn test_correctness() {
     const ROM_DATA: &'static [u8] = include_bytes!("nestest.nes");
 
     let rom = Rom::from_bytes(ROM_DATA).expect("Failed to load ROM");
-    let memory_map = MemoryMapper::default_with_rom(rom);
-    let mut system = System::new(memory_map);
+    let memory_bus = MemoryBus::default_with_rom(rom);
+    let mut system = System::new(memory_bus);
 
     system.cpu.registers.pc.load(0xC000);
 
