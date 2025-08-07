@@ -107,13 +107,16 @@ fn trace(system: &mut System) -> String {
     );
 
     let trace_line = format!(
-        "{:47} A:{:02x} X:{:02x} Y:{:02x} P:{:02x} SP:{:02x}",
+        "{:47} A:{:02x} X:{:02x} Y:{:02x} P:{:02x} SP:{:02x} PPU:{:>3},{:>3} CYC:{}",
         asm_instruction.trim(),
         *system.cpu.registers.a,
         *system.cpu.registers.x,
         *system.cpu.registers.y,
         system.cpu.registers.p.bits(),
-        *system.cpu.registers.sp
+        *system.cpu.registers.sp,
+        system.ppu.scanline,
+        system.ppu.cycles,
+        system.cpu.cycles
     );
 
     trace_line.to_ascii_uppercase()
@@ -126,9 +129,13 @@ fn test_correctness() {
 
     let rom = Rom::from_bytes(ROM_DATA).expect("Failed to load ROM");
     let memory_bus = MemoryBus::default_with_rom(rom);
-    let mut system = System::new(memory_bus);
 
+    let mut system = System::new(memory_bus);
     system.cpu.registers.pc.load(0xC000);
+
+    // Account for the initial reset cycle count
+    system.cpu.cycles = 7;
+    system.ppu.cycles = 21;
 
     for (i, expected_log) in LOG.lines().enumerate() {
         let actual_log = trace(&mut system);
@@ -136,7 +143,7 @@ fn test_correctness() {
         println!("[{:>4}] {}", i + 1, actual_log);
 
         // TODO: Start comparing the full log string once the PPU is implemented
-        assert_eq!(&actual_log, &expected_log[..73], "Failed on line {}", i + 1);
+        assert_eq!(&actual_log, &expected_log[..], "Failed on line {}", i + 1);
 
         system.step().expect(&format!(
             "Failed to step on line {}: {}",

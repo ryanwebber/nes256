@@ -74,14 +74,18 @@ impl System {
             ([lo], AddressingMode::ZeroPageY) => {
                 (lo.wrapping_add(*self.cpu.registers.y) as u16, false)
             }
-            ([lo], AddressingMode::IndirectY) => (
-                u16::from_le_bytes([
-                    self.memory().read_u8(*lo as u16),
-                    self.memory().read_u8(lo.wrapping_add(1) as u16),
-                ])
-                .wrapping_add(*self.cpu.registers.y as u16),
-                false,
-            ),
+            ([lo], AddressingMode::IndirectY) => {
+                let zp_addr = *lo;
+                let base_lo = self.memory().read_u8(zp_addr as u16);
+                let base_hi = self.memory().read_u8(zp_addr.wrapping_add(1) as u16); // wrap around in zero page
+                let base = u16::from_le_bytes([base_lo, base_hi]);
+
+                let y = *self.cpu.registers.y;
+                let final_addr = base.wrapping_add(y as u16);
+                let page_cross = (base & 0xFF00) != (final_addr & 0xFF00);
+
+                (final_addr, page_cross)
+            }
             ([lo], AddressingMode::IndirectX) => {
                 let addr = lo.wrapping_add(*self.cpu.registers.x);
                 let lo = self.memory().read_u8(addr as u16);

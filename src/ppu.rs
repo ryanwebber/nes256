@@ -5,11 +5,11 @@ pub struct Ppu {
     pub palettes: [u8; 32],
     pub oam_data: [u8; 256],
     pub mirroring: Mirroring,
+    pub scanline: u16,
+    pub cycles: usize,
     registers: Registers,
     previous_read: u8,
     buffered_nmi: bool,
-    scanline: u16,
-    cycles: usize,
 }
 
 impl Ppu {
@@ -19,10 +19,10 @@ impl Ppu {
             palettes: [0; 32],
             oam_data: [0; 256],
             mirroring,
-            previous_read: 0,
-            buffered_nmi: false,
             scanline: 0,
             cycles: 0,
+            previous_read: 0,
+            buffered_nmi: false,
             registers: Registers {
                 address: Register(AddressLatch::new()),
                 scroll: Register(Scroll::new()),
@@ -131,7 +131,7 @@ impl Ppu {
 
     pub fn step(&mut self, cycles: u8, interrupt: &mut Option<Interrupt>) {
         let buffered_nmi = std::mem::replace(&mut self.buffered_nmi, false);
-        self.cycles += cycles as usize;
+        self.cycles += (cycles as usize) * 3;
         if self.cycles >= 341 {
             self.cycles = self.cycles - 341;
             self.scanline += 1;

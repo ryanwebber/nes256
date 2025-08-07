@@ -339,7 +339,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         },
         Instruction {
             mnemonic: "*NOP",
-            implementation: |_, _, _, _| {},
+            implementation: instructions::nop_with_page_cross,
         },
     ),
     (
@@ -668,7 +668,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         },
         Instruction {
             mnemonic: "*NOP",
-            implementation: |_, _, _, _| {},
+            implementation: instructions::nop_with_page_cross,
         },
     ),
     (
@@ -1026,7 +1026,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         },
         Instruction {
             mnemonic: "*NOP",
-            implementation: |_, _, _, _| {},
+            implementation: instructions::nop_with_page_cross,
         },
     ),
     (
@@ -1394,7 +1394,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         },
         Instruction {
             mnemonic: "*NOP",
-            implementation: |_, _, _, _| {},
+            implementation: instructions::nop_with_page_cross,
         },
     ),
     (
@@ -2444,7 +2444,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         },
         Instruction {
             mnemonic: "*NOP",
-            implementation: |_, _, _, _| {},
+            implementation: instructions::nop_with_page_cross,
         },
     ),
     (
@@ -2771,7 +2771,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         },
         Instruction {
             mnemonic: "*NOP",
-            implementation: |_, _, _, _| {},
+            implementation: instructions::nop_with_page_cross,
         },
     ),
     (
@@ -2807,6 +2807,7 @@ mod instructions {
     use crate::{
         cpu::{Flags, RegisterIndex},
         memory::Memory,
+        opcode::OpCode,
         System,
     };
 
@@ -2864,14 +2865,30 @@ mod instructions {
         condition: fn(&System) -> bool,
     ) {
         if condition(system) {
+            *cycles += 1;
+
             let pc = *system.cpu.registers.pc;
-            let jump_offset = operands[0] as i8;
-            let jump_addr = pc.wrapping_add(jump_offset as u16).wrapping_add(2);
-            if pc & 0xFF00 != jump_addr & 0xFF00 {
-                *cycles += 1;
+            let offset = operands[0] as i8;
+            let base = pc.wrapping_add(2);
+            let jump_addr = base.wrapping_add(offset as u16);
+
+            if base & 0xFF00 != jump_addr & 0xFF00 {
+                *cycles += 1; // page boundary crossed
             }
 
             system.cpu.registers.pc.load(jump_addr);
+        }
+    }
+
+    pub fn nop_with_page_cross(
+        operands: &[u8],
+        opcode: &OpCode,
+        system: &mut System,
+        cycles: &mut u8,
+    ) {
+        let (_, page_cross) = system.resolve_addr(operands, opcode.addressing_mode);
+        if page_cross {
+            *cycles += 1;
         }
     }
 
@@ -3047,7 +3064,11 @@ mod instructions {
                 .cpu
                 .set_register_with_flags(RegisterIndex::A, Flags::ZERO_AND_NEGATIVE, value);
 
-            if page_cross {
+            if page_cross
+                && (opcode.addressing_mode == AddressingMode::AbsoluteX
+                    || opcode.addressing_mode == AddressingMode::AbsoluteY
+                    || opcode.addressing_mode == AddressingMode::IndirectY)
+            {
                 *cycles += 1;
             }
         },
