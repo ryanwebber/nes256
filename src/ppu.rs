@@ -1,4 +1,4 @@
-use crate::{memory::Mirroring, Register};
+use crate::{memory::Mirroring, Interrupt, Register};
 
 pub struct Ppu {
     pub vram: [u8; 2048],
@@ -7,6 +7,9 @@ pub struct Ppu {
     pub mirroring: Mirroring,
     registers: Registers,
     previous_read: u8,
+    buffered_nmi: bool,
+    scanline: u16,
+    cycles: usize,
 }
 
 impl Ppu {
@@ -17,6 +20,9 @@ impl Ppu {
             oam_data: [0; 256],
             mirroring,
             previous_read: 0,
+            buffered_nmi: false,
+            scanline: 0,
+            cycles: 0,
             registers: Registers {
                 address: Register(AddressLatch::new()),
                 scroll: Register(Scroll::new()),
@@ -29,6 +35,15 @@ impl Ppu {
 
     pub fn write_to_control_register(&mut self, value: ControlFlags) {
         self.registers.control.load(value);
+
+        let before_nmi_status = self.registers.control.contains(ControlFlags::GENERATE_NMI);
+        self.registers.control.load(value);
+        if !before_nmi_status
+            && self.registers.control.contains(ControlFlags::GENERATE_NMI)
+            && self.registers.status.contains(StatusFlags::VBLANK_STARTED)
+        {
+            self.buffered_nmi = true;
+        }
     }
 
     pub fn write_to_mask_register(&mut self, value: MaskFlags) {
@@ -111,6 +126,29 @@ impl Ppu {
             (Mirroring::Horizontal, 1) => vram_index - 0x400,
             (Mirroring::Horizontal, 3) => vram_index - 0x800,
             _ => vram_index,
+        }
+    }
+
+    pub fn step(&mut self, cycles: u8, interrupt: &mut Option<Interrupt>) {
+        let buffered_nmi = std::mem::replace(&mut self.buffered_nmi, false);
+        self.cycles += cycles as usize;
+        if self.cycles >= 341 {
+            self.cycles = self.cycles - 341;
+            self.scanline += 1;
+
+            if self.scanline == 241 {
+                if self.registers.control.contains(ControlFlags::GENERATE_NMI) {
+                    self.registers.status.insert(StatusFlags::VBLANK_STARTED);
+                    *interrupt = Some(Interrupt::Nmi);
+                }
+            } else if self.scanline >= 262 {
+                self.scanline = 0;
+                self.registers.status.remove(StatusFlags::VBLANK_STARTED);
+            }
+        }
+
+        if buffered_nmi {
+            *interrupt = Some(Interrupt::Nmi);
         }
     }
 }

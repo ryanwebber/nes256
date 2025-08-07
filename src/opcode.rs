@@ -1,4 +1,8 @@
-use crate::{memory::Memory, Flags, Interrupt, RegisterIndex, System};
+use crate::{
+    cpu::{self, Flags, RegisterIndex},
+    memory::Memory,
+    Interrupt, System,
+};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum AddressingMode {
@@ -211,7 +215,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             mnemonic: "BPL",
             implementation: |operands, _, system, cycles| {
                 instructions::branch_if(system, operands, cycles, |system| {
-                    !system.cpu.registers.p.contains(crate::Flags::NEGATIVE)
+                    !system.cpu.registers.p.contains(cpu::Flags::NEGATIVE)
                 });
             },
         },
@@ -292,7 +296,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
         Instruction {
             mnemonic: "CLC",
             implementation: |_, _, system, _| {
-                *system.cpu.registers.p &= !crate::Flags::CARRY;
+                *system.cpu.registers.p &= !cpu::Flags::CARRY;
             },
         },
     ),
@@ -540,7 +544,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             mnemonic: "BMI",
             implementation: |operands, _, system, cycles| {
                 instructions::branch_if(system, operands, cycles, |system| {
-                    system.cpu.registers.p.contains(crate::Flags::NEGATIVE)
+                    system.cpu.registers.p.contains(cpu::Flags::NEGATIVE)
                 });
             },
         },
@@ -898,7 +902,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             mnemonic: "BVC",
             implementation: |operands, _, system, cycles| {
                 instructions::branch_if(system, operands, cycles, |system| {
-                    !system.cpu.registers.p.contains(crate::Flags::OVERFLOW)
+                    !system.cpu.registers.p.contains(cpu::Flags::OVERFLOW)
                 });
             },
         },
@@ -1266,7 +1270,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             mnemonic: "BVS",
             implementation: |operands, _, system, cycles| {
                 instructions::branch_if(system, operands, cycles, |system| {
-                    system.cpu.registers.p.contains(crate::Flags::OVERFLOW)
+                    system.cpu.registers.p.contains(cpu::Flags::OVERFLOW)
                 });
             },
         },
@@ -1507,7 +1511,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             implementation: |_, _, system, _| {
                 system.cpu.update_register_with_flags(
                     RegisterIndex::Y,
-                    crate::Flags::ZERO_AND_NEGATIVE,
+                    cpu::Flags::ZERO_AND_NEGATIVE,
                     |y| *y = y.wrapping_sub(1),
                 );
             },
@@ -1538,7 +1542,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
                 let x = *system.cpu.registers.x;
                 system.cpu.update_register_with_flags(
                     RegisterIndex::A,
-                    crate::Flags::ZERO_AND_NEGATIVE,
+                    cpu::Flags::ZERO_AND_NEGATIVE,
                     |a| *a = x,
                 );
             },
@@ -1605,7 +1609,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             mnemonic: "BCC",
             implementation: |operands, _, system, cycles| {
                 instructions::branch_if(system, operands, cycles, |system| {
-                    !system.cpu.registers.p.contains(crate::Flags::CARRY)
+                    !system.cpu.registers.p.contains(cpu::Flags::CARRY)
                 });
             },
         },
@@ -1686,7 +1690,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
                 let y = *system.cpu.registers.y;
                 system.cpu.update_register_with_flags(
                     RegisterIndex::A,
-                    crate::Flags::ZERO_AND_NEGATIVE,
+                    cpu::Flags::ZERO_AND_NEGATIVE,
                     |a| *a = y,
                 );
             },
@@ -1866,7 +1870,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
                 let a = *system.cpu.registers.a;
                 system.cpu.update_register_with_flags(
                     RegisterIndex::Y,
-                    crate::Flags::ZERO_AND_NEGATIVE,
+                    cpu::Flags::ZERO_AND_NEGATIVE,
                     |y| *y = a,
                 );
             },
@@ -1894,7 +1898,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
                 let a = *system.cpu.registers.a;
                 system.cpu.update_register_with_flags(
                     RegisterIndex::X,
-                    crate::Flags::ZERO_AND_NEGATIVE,
+                    cpu::Flags::ZERO_AND_NEGATIVE,
                     |x| *x = a,
                 );
             },
@@ -1965,7 +1969,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             mnemonic: "BCS",
             implementation: |operands, _, system, cycles| {
                 instructions::branch_if(system, operands, cycles, |system| {
-                    system.cpu.registers.p.contains(crate::Flags::CARRY)
+                    system.cpu.registers.p.contains(cpu::Flags::CARRY)
                 });
             },
         },
@@ -2069,7 +2073,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
                 let sp = *system.cpu.registers.sp;
                 system.cpu.update_register_with_flags(
                     RegisterIndex::X,
-                    crate::Flags::ZERO_AND_NEGATIVE,
+                    cpu::Flags::ZERO_AND_NEGATIVE,
                     |x| *x = sp,
                 );
             },
@@ -2222,7 +2226,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             implementation: |_, _, system, _| {
                 system.cpu.update_register_with_flags(
                     RegisterIndex::Y,
-                    crate::Flags::ZERO_AND_NEGATIVE,
+                    cpu::Flags::ZERO_AND_NEGATIVE,
                     |y| *y = y.wrapping_add(1),
                 );
             },
@@ -2249,7 +2253,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             implementation: |_, _, system, _| {
                 system.cpu.update_register_with_flags(
                     RegisterIndex::X,
-                    crate::Flags::ZERO_AND_NEGATIVE,
+                    cpu::Flags::ZERO_AND_NEGATIVE,
                     |x| *x = x.wrapping_sub(1),
                 );
             },
@@ -2316,7 +2320,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             mnemonic: "BNE",
             implementation: |operands, _, system, cycles| {
                 instructions::branch_if(system, operands, cycles, |system| {
-                    !system.cpu.registers.p.contains(crate::Flags::ZERO)
+                    !system.cpu.registers.p.contains(cpu::Flags::ZERO)
                 });
             },
         },
@@ -2557,7 +2561,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             implementation: |_, _, system, _| {
                 system.cpu.update_register_with_flags(
                     RegisterIndex::X,
-                    crate::Flags::ZERO_AND_NEGATIVE,
+                    cpu::Flags::ZERO_AND_NEGATIVE,
                     |x| *x = x.wrapping_add(1),
                 );
             },
@@ -2643,7 +2647,7 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
             mnemonic: "BEQ",
             implementation: |operands, _, system, cycles| {
                 instructions::branch_if(system, operands, cycles, |system| {
-                    system.cpu.registers.p.contains(crate::Flags::ZERO)
+                    system.cpu.registers.p.contains(cpu::Flags::ZERO)
                 });
             },
         },
@@ -2800,7 +2804,11 @@ const INSTRUCTIONS: &[(u8, OpCode, Instruction)] = &[
 ];
 
 mod instructions {
-    use crate::{memory::Memory, Flags, RegisterIndex, System};
+    use crate::{
+        cpu::{Flags, RegisterIndex},
+        memory::Memory,
+        System,
+    };
 
     use super::{AddressingMode, Instruction};
 

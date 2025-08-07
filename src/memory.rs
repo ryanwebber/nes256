@@ -8,6 +8,10 @@ pub trait Memory {
     fn read_u8(&mut self, addr: u16) -> u8;
     fn write_u8(&mut self, addr: u16, value: u8);
 
+    fn page_cross(&self, addr1: u16, addr2: u16) -> bool {
+        addr1 & 0xFF00 != addr2 & 0xFF00
+    }
+
     fn read_u16(&mut self, addr: u16) -> u16 {
         let lo = self.read_u8(addr);
         let hi = self.read_u8(addr + 1);
@@ -54,7 +58,14 @@ impl Rom {
         };
 
         let prg_rom_size = data[4] as usize * PRG_ROM_PAGE_SIZE;
+        if prg_rom_size > 0x8000 {
+            return Err("PRG ROM size exceeds 32KB limit");
+        }
+
         let chr_rom_size = data[5] as usize * CHR_ROM_PAGE_SIZE;
+        if chr_rom_size > 0x2000 {
+            return Err("CHR ROM size exceeds 8KB limit");
+        }
 
         let skip_trainer = data[6] & 0b100 != 0;
 
@@ -118,12 +129,6 @@ impl MemoryBus {
 pub struct MemorySnapshot<'a> {
     bus: &'a mut MemoryBus,
     ppu: &'a mut Ppu,
-}
-
-impl MemorySnapshot<'_> {
-    pub fn page_cross(&self, addr1: u16, addr2: u16) -> bool {
-        addr1 & 0xFF00 != addr2 & 0xFF00
-    }
 }
 
 impl Memory for MemorySnapshot<'_> {
@@ -197,115 +202,3 @@ impl Memory for MemorySnapshot<'_> {
         }
     }
 }
-
-// pub struct MemoryMapper {
-//     vram: [u8; 0x800],
-//     prg_rom: Vec<u8>,
-//     ppu: Ppu,
-// }
-
-// impl MemoryMapper {
-//     pub fn default_with_rom(rom: Rom) -> Self {
-//         MemoryMapper {
-//             vram: [0; 0x800],
-//             prg_rom: rom.prg_rom,
-//             ppu: Ppu::new(rom.chr_rom, rom.mirroring),
-//         }
-//     }
-
-//     pub fn with_empty_rom() -> Self {
-//         let rom = Rom::from_bytes(&{
-//             let header = vec![
-//                 0x4E, 0x45, 0x53, 0x1A, 0x02, 0x01, 0x31, 00, 00, 00, 00, 00, 00, 00, 00, 00,
-//             ];
-
-//             let prg_rom = vec![1; 2 * PRG_ROM_PAGE_SIZE];
-//             let chr_rom = vec![2; 2 * CHR_ROM_PAGE_SIZE];
-
-//             header
-//                 .into_iter()
-//                 .chain(prg_rom)
-//                 .chain(chr_rom)
-//                 .collect::<Vec<_>>()
-//         })
-//         .unwrap();
-
-//         self::MemoryMapper::default_with_rom(rom)
-//     }
-
-//     pub(crate) fn page_cross(&self, addr1: u16, addr2: u16) -> bool {
-//         addr1 & 0xFF00 != addr2 & 0xFF00
-//     }
-// }
-
-// impl Memory for MemoryMapper {
-//     fn read_u8(&mut self, addr: u16) -> u8 {
-//         match addr {
-//             0x0000..=0x1FFF => {
-//                 let mirror_down_addr = addr & 0b00000111_11111111;
-//                 self.vram[mirror_down_addr as usize]
-//             }
-//             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 | 0x4014 => {
-//                 panic!("Attempt to read from write-only PPU address 0x{:04X}", addr);
-//             }
-//             0x2002 => self.ppu.read_and_clear_status_register().bits(),
-//             0x2004 => todo!("Read PPU OAM data"),
-//             0x2007 => self.ppu.read_from_data_segment(),
-//             0x2008..=0x3FFF => {
-//                 let mirror_down_addr = addr & 0b00100000_00000111;
-//                 self.read_u8(mirror_down_addr)
-//             }
-//             0x4000..=0x4015 => {
-//                 // TODO: Implement the APU
-//                 0xFF
-//             }
-//             0x8000..=0xFFFF => {
-//                 let mut addr = addr - 0x8000;
-//                 if self.prg_rom.len() == 0x4000 && addr >= 0x4000 {
-//                     addr = addr % 0x4000;
-//                 }
-
-//                 self.prg_rom[addr as usize]
-//             }
-//             _ => panic!("Invalid read: 0x{:04X}", addr),
-//         }
-//     }
-
-//     fn write_u8(&mut self, addr: u16, value: u8) {
-//         match addr {
-//             0x0000..=0x1FFF => {
-//                 let mirror_down_addr = addr & 0b11111111111;
-//                 self.vram[mirror_down_addr as usize] = value;
-//             }
-//             0x2000 => self
-//                 .ppu
-//                 .write_to_control_register(ControlFlags::from_bits_truncate(value)),
-//             0x2001 => self
-//                 .ppu
-//                 .write_to_mask_register(MaskFlags::from_bits_truncate(value)),
-//             0x2002 => panic!("Attempt to write to read-only PPU status register"),
-//             0x2005 => {
-//                 self.ppu.write_to_scroll_register(value);
-//             }
-//             0x2006 => {
-//                 self.ppu.write_to_data_address_register(value);
-//             }
-//             0x2007 => {
-//                 self.ppu.write_to_data_segment(value);
-//             }
-
-//             0x2008..=0x3FFF => {
-//                 let mirror_down_addr = addr & 0b00100000_00000111;
-//                 self.write_u8(mirror_down_addr, value);
-//             }
-//             0x4000..=0x4013 | 0x4015 => {
-//                 // TODO: Implement the APU
-//             }
-//             0x8000..=0xFFFF => panic!(
-//                 "Attempted to write to cartridge ROM at address {:04X}",
-//                 addr
-//             ),
-//             _ => panic!("Invalid write: {:04X}", addr),
-//         }
-//     }
-// }

@@ -1,3 +1,4 @@
+pub mod cpu;
 pub mod memory;
 pub mod opcode;
 pub mod ppu;
@@ -8,6 +9,7 @@ use memory::{Memory, Rom};
 use opcode::AddressingMode;
 
 use crate::{
+    cpu::Cpu,
     memory::{MemoryBus, MemorySnapshot},
     ppu::Ppu,
 };
@@ -57,10 +59,6 @@ impl System {
         System { cpu, ppu, bus }
     }
 
-    pub fn stack<'a>(&'a mut self) -> Stack<'a> {
-        Stack(self.bus.snapshot(&mut self.ppu), &mut self.cpu.registers.sp)
-    }
-
     pub fn resolve_addr(
         &mut self,
         operands: &[u8],
@@ -108,8 +106,28 @@ impl System {
         }
     }
 
-    pub fn interrupt(&mut self, _interrupt: Interrupt) {
-        // TODO
+    pub fn interrupt(&mut self, interrupt: Interrupt) {
+        match interrupt {
+            Interrupt::Break => {
+                todo!("Handle break interrupt");
+            }
+            Interrupt::Nmi => {
+                let pc = *self.cpu.registers.pc;
+                self.stack().push_u16(pc);
+
+                let mut flags = self.cpu.status_flags();
+                flags.set(cpu::Flags::BREAK, false);
+                flags.set(cpu::Flags::BREAK2, true);
+
+                self.stack().push_u8(flags.bits());
+                self.cpu
+                    .status_flags_mut()
+                    .insert(cpu::Flags::INTERRUPT_DISABLE);
+
+                self.ppu.step(2, &mut None);
+                *self.cpu.registers.pc = self.memory().read_u16(0xFFFA);
+            }
+        }
     }
 
     pub fn step(&mut self) -> Result<(), Error> {
@@ -138,81 +156,24 @@ impl System {
 
         self.cpu.cycles += u64::from(instruction_cycles);
 
+        // Catch the PPU up
+        let mut interrupt: Option<Interrupt> = None;
+        self.ppu.step(instruction_cycles as u8, &mut interrupt);
+
+        if let Some(Interrupt::Nmi) = interrupt {
+            self.interrupt(Interrupt::Nmi);
+        }
+
         Ok(())
+    }
+
+    pub fn stack<'a>(&'a mut self) -> Stack<'a> {
+        Stack(self.bus.snapshot(&mut self.ppu), &mut self.cpu.registers.sp)
     }
 
     pub fn memory<'a>(&'a mut self) -> MemorySnapshot<'a> {
         self.bus.snapshot(&mut self.ppu)
     }
-}
-
-pub struct Cpu {
-    pub cycles: u64,
-    pub registers: Registers,
-    pub halted: bool,
-}
-
-impl Cpu {
-    pub fn new() -> Self {
-        Cpu {
-            cycles: 0,
-            registers: Registers {
-                a: Register(0),
-                x: Register(0),
-                y: Register(0),
-                p: Register(Flags::INTERRUPT_DISABLE | Flags::BREAK2),
-                sp: Register(0xFD),
-                pc: Register(0),
-            },
-            halted: false,
-        }
-    }
-
-    pub fn update_flags(&mut self, mask: Flags, value: u8) {
-        if mask.contains(Flags::ZERO) {
-            self.registers.p.0.set(Flags::ZERO, value == 0);
-        }
-
-        if mask.contains(Flags::NEGATIVE) {
-            self.registers.p.0.set(Flags::NEGATIVE, value & 0x80 != 0);
-        }
-    }
-
-    pub fn update_register_with_flags(
-        &mut self,
-        register: RegisterIndex,
-        mask: Flags,
-        f: impl FnOnce(&mut u8),
-    ) {
-        let register = match register {
-            RegisterIndex::A => &mut self.registers.a,
-            RegisterIndex::X => &mut self.registers.x,
-            RegisterIndex::Y => &mut self.registers.y,
-        };
-
-        f(&mut *register);
-
-        let value = **register;
-        self.update_flags(mask, value);
-    }
-
-    pub fn set_register_with_flags(&mut self, register: RegisterIndex, mask: Flags, value: u8) {
-        self.update_register_with_flags(register, mask, |r| *r = value);
-    }
-
-    pub fn halt(&mut self) {
-        self.halted = true;
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct Registers {
-    pub a: Register,
-    pub x: Register,
-    pub y: Register,
-    pub sp: Register,
-    pub pc: Register<u16>,
-    pub p: Register<Flags>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -249,30 +210,9 @@ impl<T> DerefMut for Register<T> {
     }
 }
 
-pub enum RegisterIndex {
-    A,
-    X,
-    Y,
-}
-
-bitflags::bitflags! {
-    #[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
-    pub struct Flags: u8 {
-        const CARRY             = 0b00000001;
-        const ZERO              = 0b00000010;
-        const INTERRUPT_DISABLE = 0b00000100;
-        const DECIMAL_MODE      = 0b00001000;
-        const BREAK             = 0b00010000;
-        const BREAK2            = 0b00100000;
-        const OVERFLOW          = 0b01000000;
-        const NEGATIVE          = 0b10000000;
-
-        const ZERO_AND_NEGATIVE = Self::ZERO.bits() | Self::NEGATIVE.bits();
-    }
-}
-
 pub enum Interrupt {
     Break,
+    Nmi,
 }
 
 pub struct Stack<'a>(MemorySnapshot<'a>, &'a mut Register<u8>);
