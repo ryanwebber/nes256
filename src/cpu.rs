@@ -1,4 +1,4 @@
-use crate::Register;
+use crate::common::Register;
 
 pub struct Cpu {
     pub cycles: u64,

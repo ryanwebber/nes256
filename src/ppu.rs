@@ -1,4 +1,4 @@
-use crate::{memory::Mirroring, Interrupt, Register};
+use crate::{common::Register, memory::Mirroring, system::Interrupt};
 
 pub struct Ppu {
     pub vram: [u8; 2048],
@@ -150,6 +150,10 @@ impl Ppu {
         if buffered_nmi {
             *interrupt = Some(Interrupt::Nmi);
         }
+    }
+
+    pub fn status_flags(&self) -> StatusFlags {
+        self.registers.status.value()
     }
 }
 

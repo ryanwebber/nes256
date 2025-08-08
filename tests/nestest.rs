@@ -1,7 +1,7 @@
 use nes256::{
     memory::{Memory, MemoryBus, Rom},
     opcode::{self, AddressingMode},
-    System,
+    system::System,
 };
 
 fn trace(system: &mut System) -> String {

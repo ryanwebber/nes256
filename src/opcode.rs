@@ -1,7 +1,7 @@
 use crate::{
     cpu::{self, Flags, RegisterIndex},
     memory::Memory,
-    Interrupt, System,
+    system::{Interrupt, System},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -2808,7 +2808,7 @@ mod instructions {
         cpu::{Flags, RegisterIndex},
         memory::Memory,
         opcode::OpCode,
-        System,
+        system::System,
     };
 
     use super::{AddressingMode, Instruction};
