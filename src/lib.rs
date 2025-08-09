@@ -1,4 +1,5 @@
 use crate::{
+    memory::{MemoryBus, Rom},
     renderer::{RawFramebuffer, Renderer},
     system::System,
 };
@@ -10,6 +11,7 @@ pub mod opcode;
 pub mod ppu;
 pub mod renderer;
 pub mod system;
+pub mod trace;
 
 pub struct Emulator {
     system: System,
@@ -17,6 +19,16 @@ pub struct Emulator {
 }
 
 impl Emulator {
+    pub fn load(rom: Rom) -> Self {
+        let bus = MemoryBus::default_with_rom(rom);
+        let system = System::new(bus);
+
+        Emulator {
+            system,
+            renderer: Renderer::new(),
+        }
+    }
+
     pub fn run_for(
         &mut self,
         duration: std::time::Duration,
@@ -24,9 +36,18 @@ impl Emulator {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let requested_cycles: u64 = (duration.as_secs_f64() * self.cycles_per_second()) as u64;
         let target_cycles = requested_cycles - *cycle_tuning;
-        let current_cycles = self.system.cpu.cycles;
+
+        log::debug!(
+            "Emulating {:?}ms ({} cycles)",
+            duration.as_millis(),
+            target_cycles
+        );
+
         self.run(target_cycles)?;
-        *cycle_tuning = self.system.cpu.cycles - current_cycles;
+
+        // TODO: Fix cycle tuning
+        *cycle_tuning = 0;
+
         Ok(())
     }
 
@@ -51,14 +72,25 @@ impl Emulator {
                 .status_flags()
                 .contains(ppu::StatusFlags::VBLANK_STARTED);
 
-            if !was_in_vblank && now_in_vblank {
+            let rendering_disabled = self
+                .system
+                .ppu
+                .mask()
+                .intersection(ppu::MaskFlags::SHOW_BACKGROUND | ppu::MaskFlags::SHOW_SPRITES)
+                .is_empty();
+
+            if !was_in_vblank && now_in_vblank && !rendering_disabled {
                 // VBlank has started, render the frame
-                self.renderer
-                    .render_frame(&self.system.ppu, &self.system.bus);
+                self.force_render();
             }
         }
 
         Ok(())
+    }
+
+    pub fn force_render(&mut self) {
+        self.renderer
+            .render_frame(&self.system.ppu, &self.system.bus);
     }
 
     pub fn pixel_data(&self) -> &RawFramebuffer {

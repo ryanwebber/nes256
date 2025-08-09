@@ -34,8 +34,6 @@ impl Ppu {
     }
 
     pub fn write_to_control_register(&mut self, value: ControlFlags) {
-        self.registers.control.load(value);
-
         let before_nmi_status = self.registers.control.contains(ControlFlags::GENERATE_NMI);
         self.registers.control.load(value);
         if !before_nmi_status
@@ -137,8 +135,8 @@ impl Ppu {
             self.scanline += 1;
 
             if self.scanline == 241 {
+                self.registers.status.insert(StatusFlags::VBLANK_STARTED);
                 if self.registers.control.contains(ControlFlags::GENERATE_NMI) {
-                    self.registers.status.insert(StatusFlags::VBLANK_STARTED);
                     *interrupt = Some(Interrupt::Nmi);
                 }
             } else if self.scanline >= 262 {
@@ -154,6 +152,10 @@ impl Ppu {
 
     pub fn status_flags(&self) -> StatusFlags {
         self.registers.status.value()
+    }
+
+    pub fn mask(&self) -> MaskFlags {
+        self.registers.mask.value()
     }
 }
 

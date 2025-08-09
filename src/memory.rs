@@ -34,21 +34,29 @@ pub struct Rom {
 
 impl Rom {
     pub fn from_bytes(data: &[u8]) -> Result<Self, &'static str> {
-        if data.len() > 0x8000 {
-            return Err("ROM too large");
+        // Require at least the 16-byte header
+        if data.len() < 16 {
+            return Err("ROM too small");
         }
 
         if &data[0..4] != NES_TAG {
             return Err("Invalid NES tag");
         }
 
-        let mapper = (data[7] & 0b1111_0000) | (data[6] >> 4);
+        let is_nes2 = (data[7] & 0x0C) == 0x08;
 
-        let ines_ver = (data[7] >> 2) & 0b11;
-        if ines_ver != 0 {
-            return Err("iNES2.0 format not supported");
-        }
+        // Mapper number (12-bit in NES 2.0, 8-bit in iNES 1.0)
+        let mapper12: u16 = ((data[6] as u16) >> 4)
+            | ((data[7] as u16) & 0xF0)
+            | if is_nes2 {
+                ((data[8] as u16) & 0x0F) << 8
+            } else {
+                0
+            };
 
+        let mapper: u8 = (mapper12 & 0xFF) as u8; // TODO: widen to u16 if needed elsewhere
+
+        // Mirroring (unchanged between formats)
         let four_screen = data[6] & 0b1000 != 0;
         let vertical_mirroring = data[6] & 0b1 != 0;
         let mirroring = match (four_screen, vertical_mirroring) {
@@ -57,20 +65,52 @@ impl Rom {
             (false, false) => Mirroring::Horizontal,
         };
 
-        let prg_rom_size = data[4] as usize * PRG_ROM_PAGE_SIZE;
-        if prg_rom_size > 0x8000 {
-            return Err("PRG ROM size exceeds 32KB limit");
-        }
+        // PRG/CHR page counts (units: 16 KiB and 8 KiB)
+        let (prg_pages, chr_pages): (usize, usize) = if is_nes2 {
+            // NES 2.0 extends page counts with MSBs in header byte 9
+            let prg_msb = (data[9] & 0x0F) as usize;
+            let chr_msb = (data[9] >> 4) as usize;
+            let prg = (prg_msb << 8) | data[4] as usize;
+            let chr = (chr_msb << 8) | data[5] as usize;
 
-        let chr_rom_size = data[5] as usize * CHR_ROM_PAGE_SIZE;
-        if chr_rom_size > 0x2000 {
-            return Err("CHR ROM size exceeds 8KB limit");
-        }
+            // Note: NES 2.0 also supports an exponent/multiplier encoding for very large sizes.
+            // This implementation does not handle that rare case yet.
+            (prg, chr)
+        } else {
+            (data[4] as usize, data[5] as usize)
+        };
+
+        let prg_rom_size = prg_pages.saturating_mul(PRG_ROM_PAGE_SIZE);
+        let chr_rom_size = chr_pages.saturating_mul(CHR_ROM_PAGE_SIZE);
 
         let skip_trainer = data[6] & 0b100 != 0;
-
         let prg_rom_start = 16 + if skip_trainer { 512 } else { 0 };
         let chr_rom_start = prg_rom_start + prg_rom_size;
+
+        // Bounds checking against actual file size
+        if prg_rom_start
+            .checked_add(prg_rom_size)
+            .filter(|&end| end <= data.len())
+            .is_none()
+        {
+            return Err("PRG ROM size exceeds file length");
+        }
+
+        if chr_rom_start
+            .checked_add(chr_rom_size)
+            .filter(|&end| end <= data.len())
+            .is_none()
+        {
+            return Err("CHR ROM size exceeds file length");
+        }
+
+        log::info!(
+            "Loaded ROM: PRG {} KiB, CHR {} KiB, Mirroring: {:?}, Mapper: {}",
+            prg_rom_size / 1024,
+            chr_rom_size / 1024,
+            mirroring,
+            mapper
+        );
 
         Ok(Rom {
             prg_rom: data[prg_rom_start..(prg_rom_start + prg_rom_size)].to_vec(),
@@ -89,14 +129,14 @@ pub enum Mirroring {
 }
 
 pub struct MemoryBus {
-    pub vram: [u8; 0x800],
+    pub ram: [u8; 0x800],
     pub rom: Rom,
 }
 
 impl MemoryBus {
     pub fn default_with_rom(rom: Rom) -> Self {
         MemoryBus {
-            vram: [0; 0x800],
+            ram: [0; 0x800],
             rom,
         }
     }
@@ -136,7 +176,7 @@ impl Memory for MemorySnapshot<'_> {
         match addr {
             0x0000..=0x1FFF => {
                 let mirror_down_addr = addr & 0b00000111_11111111;
-                self.bus.vram[mirror_down_addr as usize]
+                self.bus.ram[mirror_down_addr as usize]
             }
             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 | 0x4014 => {
                 panic!("Attempt to read from write-only PPU address 0x{:04X}", addr);
@@ -168,7 +208,7 @@ impl Memory for MemorySnapshot<'_> {
         match addr {
             0x0000..=0x1FFF => {
                 let mirror_down_addr = addr & 0b11111111111;
-                self.bus.vram[mirror_down_addr as usize] = value;
+                self.bus.ram[mirror_down_addr as usize] = value;
             }
             0x2000 => self
                 .ppu
@@ -188,7 +228,7 @@ impl Memory for MemorySnapshot<'_> {
             }
 
             0x2008..=0x3FFF => {
-                let mirror_down_addr = addr & 0b00100000_00000111;
+                let mirror_down_addr = addr & 0x2007;
                 self.write_u8(mirror_down_addr, value);
             }
             0x4000..=0x4013 | 0x4015 => {

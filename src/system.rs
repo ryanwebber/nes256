@@ -1,6 +1,7 @@
 use crate::common::Register;
 use crate::memory::{Memory, Rom};
 use crate::opcode::AddressingMode;
+use crate::trace::Trace;
 use crate::{cpu, opcode};
 
 use crate::{
@@ -38,20 +39,30 @@ pub struct System {
 
 impl System {
     pub fn new(bus: MemoryBus) -> Self {
-        System {
+        let mut system = System {
             cpu: Cpu::new(),
             ppu: Ppu::new(bus.rom.mirroring),
             bus,
-        }
+        };
+
+        // Read the reset vector from the end of address space
+        let lo = system.memory().read_u8(0xFFFC);
+        let hi = system.memory().read_u8(0xFFFD);
+        let pc = u16::from_le_bytes([lo, hi]);
+        *system.cpu.registers.pc = pc;
+
+        log::info!("Reset vector: 0x{:04X}", pc);
+
+        // Account for the initial reset cycle count
+        system.cpu.cycles = 7;
+        system.ppu.cycles = 21;
+
+        system
     }
 
     pub fn with_rom(rom: Rom) -> System {
-        let mut bus = MemoryBus::default_with_rom(rom);
-        let mut ppu = Ppu::new(bus.rom.mirroring);
-        let mut cpu = Cpu::new();
-        *cpu.registers.pc = bus.snapshot(&mut ppu).read_u16(0xFFFC);
-
-        System { cpu, ppu, bus }
+        let bus: MemoryBus = MemoryBus::default_with_rom(rom);
+        Self::new(bus)
     }
 
     pub fn resolve_addr(
@@ -108,7 +119,7 @@ impl System {
     pub fn interrupt(&mut self, interrupt: Interrupt) {
         match interrupt {
             Interrupt::Break => {
-                todo!("Handle break interrupt");
+                self.cpu.halt();
             }
             Interrupt::Nmi => {
                 let pc = *self.cpu.registers.pc;
@@ -130,6 +141,10 @@ impl System {
     }
 
     pub fn step(&mut self) -> Result<(), Error> {
+        if self.cpu.halted {
+            return Ok(());
+        }
+
         let pc = *self.cpu.registers.pc;
         let op = self.memory().read_u8(pc);
 
@@ -159,10 +174,6 @@ impl System {
         let mut interrupt: Option<Interrupt> = None;
         self.ppu.step(instruction_cycles as u8, &mut interrupt);
 
-        if let Some(Interrupt::Nmi) = interrupt {
-            self.interrupt(Interrupt::Nmi);
-        }
-
         Ok(())
     }
 
@@ -172,6 +183,10 @@ impl System {
 
     pub fn memory<'a>(&'a mut self) -> MemorySnapshot<'a> {
         self.bus.snapshot(&mut self.ppu)
+    }
+
+    pub fn trace<'a>(&'a mut self) -> Trace<'a> {
+        Trace::new(self)
     }
 }
 
