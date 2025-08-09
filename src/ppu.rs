@@ -37,7 +37,7 @@ impl Ppu {
         let before_nmi_status = self.registers.control.contains(ControlFlags::GENERATE_NMI);
         self.registers.control.load(value);
         if !before_nmi_status
-            && self.registers.control.contains(ControlFlags::GENERATE_NMI)
+            && value.contains(ControlFlags::GENERATE_NMI)
             && self.registers.status.contains(StatusFlags::VBLANK_STARTED)
         {
             self.buffered_nmi = true;
@@ -127,8 +127,7 @@ impl Ppu {
         }
     }
 
-    pub fn step(&mut self, cycles: u8, interrupt: &mut Option<Interrupt>) {
-        let buffered_nmi = std::mem::replace(&mut self.buffered_nmi, false);
+    pub fn step(&mut self, cycles: u8) {
         self.cycles += (cycles as usize) * 3;
         if self.cycles >= 341 {
             self.cycles = self.cycles - 341;
@@ -137,17 +136,18 @@ impl Ppu {
             if self.scanline == 241 {
                 self.registers.status.insert(StatusFlags::VBLANK_STARTED);
                 if self.registers.control.contains(ControlFlags::GENERATE_NMI) {
-                    *interrupt = Some(Interrupt::Nmi);
+                    log::trace!("Generating NMI...");
+                    self.buffered_nmi = true;
                 }
             } else if self.scanline >= 262 {
                 self.scanline = 0;
                 self.registers.status.remove(StatusFlags::VBLANK_STARTED);
             }
         }
+    }
 
-        if buffered_nmi {
-            *interrupt = Some(Interrupt::Nmi);
-        }
+    pub fn poll_buffered_nmi(&mut self) -> bool {
+        std::mem::replace(&mut self.buffered_nmi, false)
     }
 
     pub fn status_flags(&self) -> StatusFlags {

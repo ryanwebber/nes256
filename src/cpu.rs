@@ -16,7 +16,7 @@ impl Cpu {
                 y: Register(0),
                 p: Register(Flags::INTERRUPT_DISABLE | Flags::BREAK2),
                 sp: Register(0xFD),
-                pc: Register(0),
+                pc: Register(0x8000),
             },
             halted: false,
         }

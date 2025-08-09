@@ -1,4 +1,5 @@
 use crate::common::Register;
+use crate::joypad::Joypad;
 use crate::memory::{Memory, Rom};
 use crate::opcode::AddressingMode;
 use crate::trace::Trace;
@@ -34,6 +35,7 @@ impl std::fmt::Display for Error {
 pub struct System {
     pub cpu: Cpu,
     pub ppu: Ppu,
+    pub joypad1: Joypad,
     pub bus: MemoryBus,
 }
 
@@ -42,6 +44,7 @@ impl System {
         let mut system = System {
             cpu: Cpu::new(),
             ppu: Ppu::new(bus.rom.mirroring),
+            joypad1: Joypad::new(),
             bus,
         };
 
@@ -134,7 +137,7 @@ impl System {
                     .status_flags_mut()
                     .insert(cpu::Flags::INTERRUPT_DISABLE);
 
-                self.ppu.step(2, &mut None);
+                self.ppu.step(2);
                 *self.cpu.registers.pc = self.memory().read_u16(0xFFFA);
             }
         }
@@ -143,6 +146,10 @@ impl System {
     pub fn step(&mut self) -> Result<(), Error> {
         if self.cpu.halted {
             return Ok(());
+        }
+
+        if self.ppu.poll_buffered_nmi() {
+            self.interrupt(Interrupt::Nmi);
         }
 
         let pc = *self.cpu.registers.pc;
@@ -171,18 +178,20 @@ impl System {
         self.cpu.cycles += u64::from(instruction_cycles);
 
         // Catch the PPU up
-        let mut interrupt: Option<Interrupt> = None;
-        self.ppu.step(instruction_cycles as u8, &mut interrupt);
+        self.ppu.step(instruction_cycles as u8);
 
         Ok(())
     }
 
     pub fn stack<'a>(&'a mut self) -> Stack<'a> {
-        Stack(self.bus.snapshot(&mut self.ppu), &mut self.cpu.registers.sp)
+        Stack(
+            self.bus.snapshot(&mut self.ppu, &mut self.joypad1),
+            &mut self.cpu.registers.sp,
+        )
     }
 
     pub fn memory<'a>(&'a mut self) -> MemorySnapshot<'a> {
-        self.bus.snapshot(&mut self.ppu)
+        self.bus.snapshot(&mut self.ppu, &mut self.joypad1)
     }
 
     pub fn trace<'a>(&'a mut self) -> Trace<'a> {

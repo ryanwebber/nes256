@@ -6,6 +6,7 @@ use crate::{
 
 pub mod common;
 pub mod cpu;
+pub mod joypad;
 pub mod memory;
 pub mod opcode;
 pub mod ppu;
@@ -95,6 +96,14 @@ impl Emulator {
 
     pub fn pixel_data(&self) -> &RawFramebuffer {
         &self.renderer.framebuffer().0
+    }
+
+    pub fn joypad1(&self) -> &joypad::Joypad {
+        &self.system.joypad1
+    }
+
+    pub fn joypad1_mut(&mut self) -> &mut joypad::Joypad {
+        &mut self.system.joypad1
     }
 
     fn cycles_per_second(&self) -> f64 {

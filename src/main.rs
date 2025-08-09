@@ -7,10 +7,11 @@ use winit::{
     dpi::LogicalSize,
     event::WindowEvent,
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+    keyboard::{KeyCode, PhysicalKey},
     window::{Window, WindowId},
 };
 
-use nes256::{memory::Rom, Emulator};
+use nes256::{joypad::JoypadButton, memory::Rom, Emulator};
 
 pub const NES_WIDTH: u32 = 256;
 pub const NES_HEIGHT: u32 = 240;
@@ -23,7 +24,7 @@ impl ApplicationHandler<()> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let state = self.state.get_or_insert_with(|| {
             log::info!("Initializing NES emulator application state...");
-            let size = LogicalSize::new(NES_WIDTH, NES_HEIGHT);
+            let size = LogicalSize::new(NES_WIDTH * 2, NES_HEIGHT * 2);
             let attributes = Window::default_attributes()
                 .with_title("NES256 Emulator")
                 .with_inner_size(size);
@@ -150,8 +151,24 @@ impl ApplicationHandler<()> for App {
                 state.window.request_redraw();
             }
             WindowEvent::KeyboardInput { event, .. } => {
-                // TODO: Implement keyboard input handling for the emulator
-                _ = event;
+                let joypad_key = match event.physical_key {
+                    PhysicalKey::Code(KeyCode::KeyA) => Some(JoypadButton::LEFT),
+                    PhysicalKey::Code(KeyCode::KeyD) => Some(JoypadButton::RIGHT),
+                    PhysicalKey::Code(KeyCode::KeyW) => Some(JoypadButton::UP),
+                    PhysicalKey::Code(KeyCode::KeyS) => Some(JoypadButton::DOWN),
+                    PhysicalKey::Code(KeyCode::Period) => Some(JoypadButton::A),
+                    PhysicalKey::Code(KeyCode::Comma) => Some(JoypadButton::B),
+                    PhysicalKey::Code(KeyCode::Enter) => Some(JoypadButton::START),
+                    PhysicalKey::Code(KeyCode::ShiftRight) => Some(JoypadButton::SELECT),
+                    _ => None,
+                };
+
+                if let Some(button) = joypad_key {
+                    state
+                        .emulator
+                        .joypad1_mut()
+                        .set_button(button, event.state == winit::event::ElementState::Pressed);
+                }
             }
             WindowEvent::Focused(focused) => {
                 if focused {

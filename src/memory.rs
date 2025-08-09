@@ -1,4 +1,7 @@
-use crate::ppu::{ControlFlags, MaskFlags, Ppu};
+use crate::{
+    joypad::Joypad,
+    ppu::{ControlFlags, MaskFlags, Ppu},
+};
 
 const NES_TAG: [u8; 4] = [0x4E, 0x45, 0x53, 0x1A];
 const PRG_ROM_PAGE_SIZE: usize = 0x4000;
@@ -161,14 +164,23 @@ impl MemoryBus {
         Self::default_with_rom(rom)
     }
 
-    pub fn snapshot<'a>(&'a mut self, ppu: &'a mut Ppu) -> MemorySnapshot<'a> {
-        MemorySnapshot { bus: self, ppu }
+    pub fn snapshot<'a>(
+        &'a mut self,
+        ppu: &'a mut Ppu,
+        joypad: &'a mut Joypad,
+    ) -> MemorySnapshot<'a> {
+        MemorySnapshot {
+            bus: self,
+            ppu,
+            joypad,
+        }
     }
 }
 
 pub struct MemorySnapshot<'a> {
     bus: &'a mut MemoryBus,
     ppu: &'a mut Ppu,
+    joypad: &'a mut Joypad,
 }
 
 impl Memory for MemorySnapshot<'_> {
@@ -188,9 +200,14 @@ impl Memory for MemorySnapshot<'_> {
                 let mirror_down_addr = addr & 0b00100000_00000111;
                 self.read_u8(mirror_down_addr)
             }
-            0x4000..=0x4015 => {
+            0x4000..0x4016 => {
                 // TODO: Implement the APU
                 0xFF
+            }
+            0x4016 => self.joypad.read(),
+            0x4017 => {
+                /* Ignore joypad2 */
+                0
             }
             0x8000..=0xFFFF => {
                 let mut addr = addr - 0x8000;
@@ -231,7 +248,12 @@ impl Memory for MemorySnapshot<'_> {
                 let mirror_down_addr = addr & 0x2007;
                 self.write_u8(mirror_down_addr, value);
             }
-            0x4000..=0x401F => {
+            0x4000..0x4016 => {
+                // TODO: Other IO controllers?
+            }
+            0x4016 => self.joypad.write(value),
+            0x4017 => { /* Ignore joypad2 */ }
+            0x4018..=0x401F => {
                 // TODO: Implement the APU
             }
             0x8000..=0xFFFF => panic!(
