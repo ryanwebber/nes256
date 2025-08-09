@@ -58,7 +58,7 @@ impl ApplicationHandler<()> for App {
                 pixels,
                 emulator,
                 cycle_tuning: 0,
-                last_frame_time: Instant::now(),
+                last_frame_time: None,
             }
         });
 
@@ -85,10 +85,18 @@ impl ApplicationHandler<()> for App {
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
+                let Some(last_frame_time) = state.last_frame_time else {
+                    // First frame, just record the time and request another redraw
+                    // rather than having a big emulation chunk up front
+                    state.last_frame_time = Some(Instant::now());
+                    state.window.request_redraw();
+                    return;
+                };
+
                 // Calculate the time since the last frame
                 let current_time = Instant::now();
-                let frame_duration = current_time.duration_since(state.last_frame_time);
-                state.last_frame_time = current_time;
+                let frame_duration = current_time.duration_since(last_frame_time);
+                state.last_frame_time = Some(current_time);
 
                 // Ensure we have a reasonable frame duration (minimum 1/120th of a second)
                 let min_frame_duration = std::time::Duration::from_secs_f64(1.0 / 120.0);
@@ -160,7 +168,7 @@ struct State {
     window: Arc<Window>,
     pixels: Pixels<'static>,
     emulator: Emulator,
-    last_frame_time: Instant,
+    last_frame_time: Option<Instant>,
     cycle_tuning: u64,
 }
 

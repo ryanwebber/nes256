@@ -231,14 +231,14 @@ impl Memory for MemorySnapshot<'_> {
                 let mirror_down_addr = addr & 0x2007;
                 self.write_u8(mirror_down_addr, value);
             }
-            0x4000..=0x4013 | 0x4015 => {
+            0x4000..=0x401F => {
                 // TODO: Implement the APU
             }
             0x8000..=0xFFFF => panic!(
                 "Attempted to write to cartridge ROM at address {:04X}",
                 addr
             ),
-            _ => panic!("Invalid write: {:04X}", addr),
+            _ => panic!("Invalid write: {:#04X}", addr),
         }
     }
 }
