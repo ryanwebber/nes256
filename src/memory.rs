@@ -191,7 +191,11 @@ impl Memory for MemorySnapshot<'_> {
                 self.bus.ram[mirror_down_addr as usize]
             }
             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 | 0x4014 => {
-                panic!("Attempt to read from write-only PPU address 0x{:04X}", addr);
+                log::warn!(
+                    "Attempt to read from write-only PPU register at 0x{:04X}",
+                    addr
+                );
+                0
             }
             0x2002 => self.ppu.read_and_clear_status_register().bits(),
             0x2004 => todo!("Read PPU OAM data"),
@@ -234,6 +238,9 @@ impl Memory for MemorySnapshot<'_> {
                 .ppu
                 .write_to_mask_register(MaskFlags::from_bits_truncate(value)),
             0x2002 => panic!("Attempt to write to read-only PPU status register"),
+            0x2003 => {
+                self.ppu.write_to_oam_address_register(value);
+            }
             0x2005 => {
                 self.ppu.write_to_scroll_register(value);
             }
@@ -256,10 +263,22 @@ impl Memory for MemorySnapshot<'_> {
             0x4018..=0x401F => {
                 // TODO: Implement the APU
             }
-            0x8000..=0xFFFF => panic!(
-                "Attempted to write to cartridge ROM at address {:04X}",
-                addr
-            ),
+            0x8000..=0xFFFF => {
+                match self.bus.rom.mapper {
+                    0 => {
+                        // NROM: ignore writes
+                    }
+                    1 => {
+                        todo!("Implement MMC1 write");
+                    }
+                    2 => {
+                        todo!("Implement UxROM bank switch");
+                    }
+                    _ => {
+                        unimplemented!("Mapper {} not implemented", self.bus.rom.mapper);
+                    }
+                }
+            }
             _ => panic!("Invalid write: {:#04X}", addr),
         }
     }

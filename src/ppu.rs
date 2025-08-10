@@ -1,4 +1,4 @@
-use crate::{common::Register, memory::Mirroring, system::Interrupt};
+use crate::{common::Register, memory::Mirroring};
 
 pub struct Ppu {
     pub vram: [u8; 2048],
@@ -54,6 +54,10 @@ impl Ppu {
 
     pub fn write_to_data_address_register(&mut self, value: u8) {
         self.registers.address.write(value);
+    }
+
+    pub fn write_to_oam_address_register(&mut self, value: u8) {
+        self.registers.address.set(value as u16);
     }
 
     pub fn write_to_data_segment(&mut self, value: u8) {

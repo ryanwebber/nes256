@@ -1,43 +1,100 @@
-use std::{cell::RefCell, fmt::Display};
+use std::fmt::Display;
 
 use crate::{
+    cpu,
     memory::Memory,
-    opcode::{self, AddressingMode},
+    opcode::{self, AddressingMode, Instruction, OpCode},
     system::System,
 };
 
-pub struct Trace<'a> {
-    system: RefCell<&'a mut System>,
+pub struct Trace {
+    pub registers: cpu::Registers,
+    pub op: u8,
+    pub opcode: OpCode,
+    pub instruction: Instruction,
+    pub addressing_mode: AddressingMode,
+    pub operand_mem_addr: u16,
+    pub operand_stored_value: u8,
+    pub operands: [u8; 2],
+    pub ppu_scanline: u32,
+    pub ppu_cycles: u32,
+    pub cpu_cycles: u32,
+    pub jump_addr: Option<u16>,
 }
 
-impl<'a> Trace<'a> {
-    pub fn new(system: &'a mut System) -> Self {
+impl Trace {
+    pub fn tracing(system: &mut System) -> Self {
+        let pc = *system.cpu.registers.pc;
+
+        // Read opcode and decode
+        let op = system.memory().read_u8(pc);
+        let (opcode, instruction) = opcode::lookup(op);
+        let operand_len = (opcode.size - 1) as usize;
+        let addressing_mode = opcode.addressing_mode;
+
+        // Fetch up to two operand bytes (following Trace::fmt behavior)
+        // Note: operands[1] is used for 2-byte instructions by the Display impl.
+        let mut operands = [0u8; 2];
+        for i in 0..operand_len {
+            operands[i as usize] = system.memory().read_u8(pc.wrapping_add(1 + i as u16));
+        }
+
+        let (operand_mem_addr, operand_stored_value) = match addressing_mode {
+            AddressingMode::Immediate | AddressingMode::Unsupported => (0u16, 0u8),
+            _ => {
+                let (addr, _) = system.resolve_addr(&operands[0..operand_len], addressing_mode);
+                let val = system.memory().read_u8(addr);
+                (addr, val)
+            }
+        };
+
+        // Special case: JMP (indirect) with 6502 page-wrap bug
+        let jump_addr = if op == 0x6C && operands.len() == 2 {
+            let ptr = u16::from_le_bytes([operands[0], operands[1]]);
+            let target = if (ptr & 0x00FF) == 0x00FF {
+                let lo = system.memory().read_u8(ptr);
+                let hi = system.memory().read_u8(ptr & 0xFF00);
+                u16::from_le_bytes([lo, hi])
+            } else {
+                system.memory().read_u16(ptr)
+            };
+            Some(target)
+        } else {
+            None
+        };
+
         Trace {
-            system: RefCell::new(system),
+            registers: system.cpu.registers.clone(),
+            op,
+            opcode: opcode.clone(),
+            instruction: instruction.clone(),
+            addressing_mode,
+            operand_mem_addr,
+            operand_stored_value,
+            operands,
+            ppu_scanline: system.ppu.scanline as u32,
+            ppu_cycles: system.ppu.cycles as u32,
+            cpu_cycles: system.cpu.cycles as u32,
+            jump_addr,
         }
     }
 }
 
-impl Display for Trace<'_> {
+impl Display for Trace {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let mut system = self.system.borrow_mut();
-        let pc = *system.cpu.registers.pc;
-        let op = system.memory().read_u8(pc);
-        let (opcode, instruction) = opcode::lookup(op);
+        let pc = *self.registers.pc;
+        let op = self.op;
+        let opcode = self.opcode;
+        let operand_len = (opcode.size - 1) as usize;
+        let instruction = self.instruction;
+        let mem_addr = self.operand_mem_addr;
+        let stored_value = self.operand_stored_value;
 
         let instruction_data: Vec<u8> = [op]
             .iter()
             .copied()
-            .chain((1..opcode.size).map(|i| system.memory().read_u8(pc + i as u16)))
+            .chain((0..operand_len).map(|i| self.operands[i as usize]))
             .collect::<Vec<_>>();
-
-        let (mem_addr, stored_value) = match opcode.addressing_mode {
-            AddressingMode::Immediate | AddressingMode::Unsupported => (0u16, 0u8),
-            _ => {
-                let (addr, _) = system.resolve_addr(&instruction_data[1..], opcode.addressing_mode);
-                (addr, system.memory().read_u8(addr))
-            }
-        };
 
         let memory_fragment = match &instruction_data[..] {
             [op] => match op {
@@ -56,14 +113,14 @@ impl Display for Trace<'_> {
                 AddressingMode::IndirectX => format!(
                     "(${:02X},X) @ {:02X} = {:04X} = {:02X}",
                     addr,
-                    (addr.wrapping_add(*system.cpu.registers.x)),
+                    (addr.wrapping_add(*self.registers.x)),
                     mem_addr,
                     stored_value
                 ),
                 AddressingMode::IndirectY => format!(
                     "(${:02X}),Y = {:04X} @ {:04X} = {:02X}",
                     addr,
-                    (mem_addr.wrapping_sub(*system.cpu.registers.y as u16)),
+                    (mem_addr.wrapping_sub(*self.registers.y as u16)),
                     mem_addr,
                     stored_value
                 ),
@@ -82,14 +139,7 @@ impl Display for Trace<'_> {
                     AddressingMode::Unsupported => {
                         if *op == 0x6c {
                             // Special case for jump indirect
-                            let jmp_addr = if addr & 0x00FF == 0x00FF {
-                                let lo = system.memory().read_u8(addr);
-                                let hi = system.memory().read_u8(addr & 0xFF00);
-                                u16::from_le_bytes([lo, hi])
-                            } else {
-                                system.memory().read_u16(addr)
-                            };
-
+                            let jmp_addr = self.jump_addr.unwrap_or(0xDEAD);
                             format!("(${:04X}) = {:04X}", addr, jmp_addr)
                         } else {
                             format!("${:04X}", addr)
@@ -128,14 +178,14 @@ impl Display for Trace<'_> {
             f,
             "{:47} A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} PPU:{:>3},{:>3} CYC:{}",
             asm_instruction.trim(),
-            *system.cpu.registers.a,
-            *system.cpu.registers.x,
-            *system.cpu.registers.y,
-            system.cpu.registers.p.bits(),
-            *system.cpu.registers.sp,
-            system.ppu.scanline,
-            system.ppu.cycles,
-            system.cpu.cycles
+            *self.registers.a,
+            *self.registers.x,
+            *self.registers.y,
+            self.registers.p.bits(),
+            *self.registers.sp,
+            self.ppu_scanline,
+            self.ppu_cycles,
+            self.cpu_cycles
         )?;
 
         Ok(())

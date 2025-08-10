@@ -18,12 +18,14 @@ pub enum AddressingMode {
     Unsupported,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct OpCode {
     pub size: u8,
     pub cycles: u8,
     pub addressing_mode: AddressingMode,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Instruction {
     pub mnemonic: &'static str,
     implementation: fn(&[u8], &OpCode, &mut System, &mut u8),

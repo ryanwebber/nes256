@@ -156,6 +156,7 @@ impl System {
         let op = self.memory().read_u8(pc);
 
         let (opcode, instruction) = opcode::lookup(op);
+
         let mut instruction_cycles = opcode.cycles;
 
         let mut operands = [0; 2];
@@ -194,8 +195,8 @@ impl System {
         self.bus.snapshot(&mut self.ppu, &mut self.joypad1)
     }
 
-    pub fn trace<'a>(&'a mut self) -> Trace<'a> {
-        Trace::new(self)
+    pub fn trace(&mut self) -> Trace {
+        Trace::tracing(self)
     }
 }
 
