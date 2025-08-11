@@ -29,12 +29,26 @@ pub struct MMC1 {
     // Original ROM data
     prg_rom: Vec<u8>,
     chr_rom: Vec<u8>,
+    chr_ram: Vec<u8>, // CHR RAM for games that use it
     mirroring: Mirroring,
+    has_chr_ram: bool,
+
+    // Reusable CHR buffer to avoid allocations
+    chr_buffer: Vec<u8>,
+    buffer_dirty: bool, // Track if buffer needs updating
 }
 
 impl MMC1 {
     fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
-        Self {
+        // Check if this is a CHR RAM game (CHR ROM size is 0)
+        let has_chr_ram = chr_rom.is_empty();
+        let chr_ram = if has_chr_ram {
+            vec![0; 0x2000] // 8KB CHR RAM
+        } else {
+            vec![]
+        };
+
+        let mut mmc1 = Self {
             shift_register: 0,
             shift_count: 0,
             control: 0x0C, // Default: 32KB PRG ROM, 8KB CHR ROM, horizontal mirroring
@@ -43,8 +57,17 @@ impl MMC1 {
             prg_bank: 0,
             prg_rom,
             chr_rom,
+            chr_ram,
             mirroring,
-        }
+            has_chr_ram,
+            chr_buffer: vec![0; 0x2000], // 8KB buffer
+            buffer_dirty: true,          // Mark as dirty initially
+        };
+
+        // Initialize the buffer immediately with the default bank state
+        mmc1.update_chr_buffer();
+
+        mmc1
     }
 
     fn write_register(&mut self, addr: u16, value: u8) {
@@ -68,15 +91,19 @@ impl MMC1 {
                     self.control = self.shift_register & 0x1F;
                     // Update mirroring when control register changes
                     self.mirroring = self.get_mirroring();
+                    self.buffer_dirty = true; // CHR mode or bank configuration changed
                 }
                 0xA000..=0xBFFF => {
                     self.chr_bank0 = self.shift_register & 0x1F;
+                    self.buffer_dirty = true; // CHR bank 0 changed
                 }
                 0xC000..=0xDFFF => {
                     self.chr_bank1 = self.shift_register & 0x1F;
+                    self.buffer_dirty = true; // CHR bank 1 changed;
                 }
                 0xE000..=0xFFFF => {
                     self.prg_bank = self.shift_register & 0x0F;
+                    // PRG bank changes don't affect CHR buffer
                 }
                 _ => {}
             }
@@ -133,33 +160,39 @@ impl MMC1 {
     }
 
     fn read_chr(&self, addr: u16) -> u8 {
-        let chr_mode = (self.control >> 4) & 0x1;
-        let chr_addr = match chr_mode {
-            0 => {
-                // 8KB mode: single 8KB bank
-                let bank = ((self.chr_bank0 & 0x1E) >> 1) as usize;
-                bank * CHR_ROM_PAGE_SIZE + addr as usize
-            }
-            1 => {
-                // 4KB mode: two 4KB banks
-                if addr < 0x1000 {
-                    // First 4KB bank
-                    let bank = (self.chr_bank0 & 0x1F) as usize;
-                    bank * (CHR_ROM_PAGE_SIZE / 2) + addr as usize
-                } else {
-                    // Second 4KB bank
-                    let bank = (self.chr_bank1 & 0x1F) as usize;
-                    let offset = (addr - 0x1000) as usize;
-                    bank * (CHR_ROM_PAGE_SIZE / 2) + offset
-                }
-            }
-            _ => unreachable!(),
-        };
-
-        if chr_addr < self.chr_rom.len() {
-            self.chr_rom[chr_addr]
+        if self.has_chr_ram {
+            // CHR RAM mode
+            self.chr_ram[addr as usize]
         } else {
-            0 // Return 0 for out-of-bounds reads
+            // CHR ROM mode
+            let chr_mode = (self.control >> 4) & 0x1;
+            let chr_addr = match chr_mode {
+                0 => {
+                    // 8KB mode: single 8KB bank
+                    let bank = ((self.chr_bank0 & 0x1E) >> 1) as usize;
+                    bank * 0x2000 + addr as usize
+                }
+                1 => {
+                    // 4KB mode: two 4KB banks
+                    if addr < 0x1000 {
+                        // First 4KB bank
+                        let bank = (self.chr_bank0 & 0x1F) as usize;
+                        bank * 0x1000 + addr as usize
+                    } else {
+                        // Second 4KB bank
+                        let bank = (self.chr_bank1 & 0x1F) as usize;
+                        let offset = (addr - 0x1000) as usize;
+                        bank * 0x1000 + offset
+                    }
+                }
+                _ => unreachable!(),
+            };
+
+            if chr_addr < self.chr_rom.len() {
+                self.chr_rom[chr_addr]
+            } else {
+                0 // Return 0 for out-of-bounds reads
+            }
         }
     }
 
@@ -171,6 +204,36 @@ impl MMC1 {
             3 => Mirroring::Horizontal,
             _ => unreachable!(),
         }
+    }
+
+    // Update the CHR buffer with current bank state
+    fn update_chr_buffer(&mut self) {
+        if !self.buffer_dirty {
+            return; // Buffer is already up to date
+        }
+
+        for i in 0..0x2000 {
+            self.chr_buffer[i] = self.read_chr(i as u16);
+        }
+
+        self.buffer_dirty = false;
+    }
+
+    // Get the current CHR data (updating buffer if needed)
+    pub fn get_chr_data(&mut self) -> &[u8] {
+        self.update_chr_buffer();
+        &self.chr_buffer
+    }
+
+    // Public method for testing buffer state
+    #[cfg(test)]
+    pub fn is_buffer_dirty(&self) -> bool {
+        self.buffer_dirty
+    }
+
+    #[cfg(test)]
+    pub fn get_buffer_value(&self, index: usize) -> u8 {
+        self.chr_buffer[index]
     }
 }
 
@@ -381,17 +444,15 @@ impl Memory for MemorySnapshot<'_> {
             0x2002 => self.ppu.read_and_clear_status_register().bits(),
             0x2004 => todo!("Read PPU OAM data"),
             0x2007 => {
-                if let Some(ref mmc1) = self.bus.mmc1 {
-                    // Create a temporary buffer with the current CHR ROM state through the mapper
-                    let mut chr_buffer = vec![0u8; 0x2000];
-                    for i in 0..0x2000 {
-                        chr_buffer[i] = mmc1.read_chr(i as u16);
-                    }
+                if let Some(ref mut mmc1) = self.bus.mmc1 {
                     // Update PPU mirroring if it has changed
                     if mmc1.mirroring != self.bus.rom.mirroring {
                         self.ppu.update_mirroring(mmc1.mirroring);
                     }
-                    self.ppu.read_from_data_segment(&chr_buffer)
+
+                    // Use the reusable buffer (only updates when bank configuration changes)
+                    let chr_data = mmc1.get_chr_data();
+                    self.ppu.read_from_data_segment(chr_data)
                 } else {
                     self.ppu.read_from_data_segment(&self.bus.rom.chr_rom)
                 }
@@ -621,5 +682,120 @@ mod tests {
 
         mmc1.control = 0x03; // Horizontal
         assert_eq!(mmc1.get_mirroring(), Mirroring::Horizontal);
+    }
+
+    #[test]
+    fn test_mmc1_chr_ram_support() {
+        let prg_rom = vec![0xDD; 0x8000];
+        let chr_rom = vec![]; // Empty CHR ROM = CHR RAM mode
+        let mmc1 = MMC1::new(prg_rom.clone(), chr_rom, Mirroring::Horizontal);
+
+        // Test that CHR RAM is initialized
+        assert!(mmc1.has_chr_ram);
+        assert_eq!(mmc1.chr_ram.len(), 0x2000); // 8KB
+
+        // Test reading from CHR RAM (should be initialized to 0)
+        assert_eq!(mmc1.read_chr(0x0000), 0);
+        assert_eq!(mmc1.read_chr(0x1000), 0);
+
+        // Test CHR ROM mode
+        let chr_rom = vec![0xFF; 0x2000];
+        let mmc1_rom = MMC1::new(prg_rom.clone(), chr_rom, Mirroring::Horizontal);
+        assert!(!mmc1_rom.has_chr_ram);
+        assert_eq!(mmc1_rom.read_chr(0x0000), 0xFF);
+    }
+
+    #[test]
+    fn test_mmc1_reusable_buffer() {
+        let prg_rom = vec![0xEE; 0x8000];
+        let mut chr_rom = vec![0; 0x4000]; // 16KB CHR ROM
+
+        // Set up test data
+        for i in 0..0x2000 {
+            chr_rom[i] = 0xAA; // First 8KB bank
+            chr_rom[i + 0x2000] = 0xBB; // Second 8KB bank
+        }
+
+        let mut mmc1 = MMC1::new(prg_rom, chr_rom, Mirroring::Horizontal);
+
+        // Initial state - buffer should be clean (initialized in constructor)
+        assert!(!mmc1.is_buffer_dirty());
+
+        // First call should not update the buffer (already clean)
+        mmc1.update_chr_buffer();
+        assert!(!mmc1.is_buffer_dirty()); // Buffer should still be clean
+        assert_eq!(mmc1.get_buffer_value(0), 0xAA); // Should read from first bank
+
+        // Second call should reuse the buffer (no update needed)
+        mmc1.update_chr_buffer();
+        assert!(!mmc1.is_buffer_dirty()); // Buffer should still be clean
+        assert_eq!(mmc1.get_buffer_value(0), 0xAA); // Should be the same data
+
+        // Change CHR bank configuration using the proper method
+        // Write 5 bits: 00010 (0x02) to CHR bank 0 register
+        // In 8KB mode, this becomes bank 1 after shifting
+        mmc1.write_register(0xA000, 0); // Bit 0
+        mmc1.write_register(0xA000, 1); // Bit 1
+        mmc1.write_register(0xA000, 0); // Bit 2
+        mmc1.write_register(0xA000, 0); // Bit 3
+        mmc1.write_register(0xA000, 0); // Bit 4
+        assert!(mmc1.is_buffer_dirty()); // Buffer should be marked as dirty
+
+        // Call should update the buffer again
+        mmc1.update_chr_buffer();
+        assert!(!mmc1.is_buffer_dirty()); // Buffer should be clean again
+        assert_eq!(mmc1.get_buffer_value(0), 0xBB); // Should now read from second bank
+    }
+
+    #[test]
+    fn test_mmc1_4kb_mode() {
+        let prg_rom = vec![0xEE; 0x8000];
+        let mut chr_rom = vec![0; 0x4000]; // 16KB CHR ROM
+
+        // Set up test data for 4KB banks
+        for i in 0..0x1000 {
+            chr_rom[i] = 0xAA; // First 4KB bank
+            chr_rom[i + 0x1000] = 0xBB; // Second 4KB bank
+            chr_rom[i + 0x2000] = 0xCC; // Third 4KB bank
+            chr_rom[i + 0x3000] = 0xDD; // Fourth 4KB bank
+        }
+
+        let mut mmc1 = MMC1::new(prg_rom, chr_rom, Mirroring::Horizontal);
+
+        // Switch to 4KB mode (control = 0x10)
+        // The shift register loads bits from LSB to MSB, so we need to write MSB first
+        mmc1.write_register(0x8000, 0); // Bit 4: MSB (4KB mode)
+        mmc1.write_register(0x8000, 0); // Bit 3
+        mmc1.write_register(0x8000, 0); // Bit 2
+        mmc1.write_register(0x8000, 0); // Bit 1
+        mmc1.write_register(0x8000, 1); // Bit 0: LSB (4KB mode)
+
+        // Set CHR bank 0 to bank 1 (0x01)
+        mmc1.write_register(0xA000, 1); // Bit 0
+        mmc1.write_register(0xA000, 0); // Bit 1
+        mmc1.write_register(0xA000, 0); // Bit 2
+        mmc1.write_register(0xA000, 0); // Bit 3
+        mmc1.write_register(0xA000, 0); // Bit 4
+
+        // Set CHR bank 1 to bank 2 (0x02)
+        mmc1.write_register(0xC000, 0); // Bit 0
+        mmc1.write_register(0xC000, 1); // Bit 1
+        mmc1.write_register(0xC000, 0); // Bit 2
+        mmc1.write_register(0xC000, 0); // Bit 3
+        mmc1.write_register(0xC000, 0); // Bit 4
+
+        // Update buffer and check results
+        mmc1.update_chr_buffer();
+
+        // First 4KB should be from bank 1 (0xBB)
+        assert_eq!(mmc1.get_buffer_value(0), 0xBB);
+        assert_eq!(mmc1.get_buffer_value(0x0FFF), 0xBB);
+
+        // Second 4KB should be from bank 2 (0xCC)
+        assert_eq!(mmc1.get_buffer_value(0x1000), 0xCC);
+        assert_eq!(mmc1.get_buffer_value(0x1FFF), 0xCC);
+
+        // Verify the mode is correct
+        assert_eq!((mmc1.control >> 4) & 0x1, 1); // 4KB mode
     }
 }

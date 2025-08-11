@@ -124,11 +124,20 @@ impl Renderer {
         }
     }
 
-    pub fn render_frame(&mut self, ppu: &Ppu, memory: &MemoryBus) {
+    pub fn render_frame(&mut self, ppu: &Ppu, memory: &mut MemoryBus) {
         let fb = &mut self.framebuffer.0;
-        let chr = &memory.rom.chr_rom[..];
 
-        // Clear to black if CHR ROM missing
+        // Check if MMC1 is present before borrowing memory
+        let has_mmc1 = memory.mmc1.is_some();
+
+        // Use MMC1 CHR data if available, otherwise fall back to ROM CHR data
+        let chr = if let Some(ref mut mmc1) = memory.mmc1 {
+            mmc1.get_chr_data()
+        } else {
+            &memory.rom.chr_rom[..]
+        };
+
+        // Clear to black if CHR data missing
         if chr.is_empty() {
             fb.fill(0);
             return;
@@ -148,6 +157,7 @@ impl Renderer {
             _ => 0x2C00,
         };
 
+        // Use PPU pattern table selection (simplified for debugging)
         let background_pattern_base = if control.contains(ppu::ControlFlags::BACKROUND_PATTERN_ADDR)
         {
             0x1000
@@ -175,12 +185,13 @@ impl Renderer {
                 scroll_x,
                 scroll_y,
                 mask,
+                has_mmc1,
             );
         }
 
         // Render sprites if enabled
         if mask.contains(ppu::MaskFlags::SHOW_SPRITES) {
-            Self::render_sprites(fb, ppu, chr, sprite_pattern_base, mask);
+            Self::render_sprites(fb, ppu, chr, sprite_pattern_base, mask, has_mmc1);
         }
     }
 
@@ -193,6 +204,7 @@ impl Renderer {
         scroll_x: u8,
         scroll_y: u8,
         mask: ppu::MaskFlags,
+        has_mmc1: bool,
     ) {
         const WIDTH: usize = 256;
         const HEIGHT: usize = 240;
@@ -239,6 +251,7 @@ impl Renderer {
 
                     if mirrored_attr_addr >= 0x2000 {
                         let attr_vram_index = (mirrored_attr_addr - 0x2000) as usize;
+
                         if attr_vram_index >= ppu.vram.len() {
                             continue;
                         }
@@ -248,7 +261,14 @@ impl Renderer {
                         let palette_id = (attr_byte >> attr_shift) & 0x03;
 
                         // Get tile pattern
-                        let tile_addr = pattern_base as usize + tile_id * 16;
+                        let tile_addr = if has_mmc1 {
+                            // For MMC1, the CHR data is already bank-switched, so don't add pattern_base
+                            tile_id * 16
+                        } else {
+                            // For non-MMC1, use the pattern_base offset
+                            pattern_base as usize + tile_id * 16
+                        };
+
                         if tile_addr + 15 >= chr.len() {
                             continue;
                         }
@@ -296,6 +316,7 @@ impl Renderer {
         chr: &[u8],
         pattern_base: u16,
         mask: ppu::MaskFlags,
+        has_mmc1: bool,
     ) {
         const WIDTH: usize = 256;
         const HEIGHT: usize = 240;
@@ -369,7 +390,14 @@ impl Renderer {
                 }
 
                 // Get tile pattern (for 8x16, we need two tiles)
-                let tile_addr = pattern_base as usize + (base_tile + tile_y) * 16;
+                let tile_addr = if has_mmc1 {
+                    // For MMC1, the CHR data is already bank-switched, so don't add pattern_base
+                    (base_tile + tile_y) * 16
+                } else {
+                    // For non-MMC1, use the pattern_base offset
+                    pattern_base as usize + (base_tile + tile_y) * 16
+                };
+
                 if tile_addr + 15 >= chr.len() {
                     continue;
                 }
@@ -493,9 +521,9 @@ mod tests {
     fn test_empty_chr_rom_rendering() {
         let mut renderer = Renderer::new();
         let ppu = create_test_ppu();
-        let memory = create_test_memory();
+        let mut memory = create_test_memory();
 
-        renderer.render_frame(&ppu, &memory);
+        renderer.render_frame(&ppu, &mut memory);
 
         // Should render all black
         for &pixel in &renderer.framebuffer.0 {
@@ -526,7 +554,7 @@ mod tests {
         // Enable background rendering
         ppu.write_to_mask_register(MaskFlags::SHOW_BACKGROUND);
 
-        renderer.render_frame(&ppu, &memory);
+        renderer.render_frame(&ppu, &mut memory);
 
         // Check that the diagonal line is rendered
         // Pixel (0,0) should be color 1 (the diagonal line) since it's the leftmost pixel
@@ -565,7 +593,7 @@ mod tests {
         // Enable sprite rendering
         ppu.write_to_mask_register(MaskFlags::SHOW_SPRITES);
 
-        renderer.render_frame(&ppu, &memory);
+        renderer.render_frame(&ppu, &mut memory);
 
         // Check that sprite is rendered at the correct position
         let idx = (10 * 256 + 10) * 3;
@@ -598,7 +626,7 @@ mod tests {
         // Enable sprite rendering
         ppu.write_to_mask_register(MaskFlags::SHOW_SPRITES);
 
-        renderer.render_frame(&ppu, &memory);
+        renderer.render_frame(&ppu, &mut memory);
 
         // Check that flipped sprite is rendered correctly
         // With horizontal flip, the diagonal should go from top-right to bottom-left
@@ -641,7 +669,7 @@ mod tests {
         // Enable both background and sprite rendering
         ppu.write_to_mask_register(MaskFlags::SHOW_BACKGROUND | MaskFlags::SHOW_SPRITES);
 
-        renderer.render_frame(&ppu, &memory);
+        renderer.render_frame(&ppu, &mut memory);
 
         // Check that background takes priority over sprite
         let idx = (10 * 256 + 10) * 3;
@@ -672,7 +700,7 @@ mod tests {
         // Enable background rendering
         ppu.write_to_mask_register(MaskFlags::SHOW_BACKGROUND);
 
-        renderer.render_frame(&ppu, &memory);
+        renderer.render_frame(&ppu, &mut memory);
 
         // With scroll (4, 4), the tile at (0,0) should be visible at screen position (4,4)
         // Check that the diagonal line is visible at the scrolled position
@@ -703,7 +731,7 @@ mod tests {
         // Enable background rendering
         ppu.write_to_mask_register(MaskFlags::SHOW_BACKGROUND);
 
-        renderer.render_frame(&ppu, &memory);
+        renderer.render_frame(&ppu, &mut memory);
 
         // Check that nametable 1 is used
         let idx = 0 * 3;
@@ -755,7 +783,7 @@ mod tests {
         // Enable background rendering
         ppu.write_to_mask_register(MaskFlags::SHOW_BACKGROUND);
 
-        renderer.render_frame(&ppu, &memory);
+        renderer.render_frame(&ppu, &mut memory);
 
         // Check that pattern table 1 is used
         let idx = 0 * 3;
@@ -811,7 +839,7 @@ mod tests {
         // Enable sprite rendering
         ppu.write_to_mask_register(MaskFlags::SHOW_SPRITES);
 
-        renderer.render_frame(&ppu, &memory);
+        renderer.render_frame(&ppu, &mut memory);
 
         // Check that 8x16 sprite is rendered correctly
         // Top part (diagonal line) at position (10, 10)
@@ -858,7 +886,7 @@ mod tests {
                 | MaskFlags::LEFTMOST_8PXL_SPRITE,
         );
 
-        renderer.render_frame(&ppu, &memory);
+        renderer.render_frame(&ppu, &mut memory);
 
         // Debug: check if sprite is rendered at all
         let mut sprite_found = false;
@@ -915,7 +943,7 @@ mod tests {
         ppu.oam_data[2] = 0x00; // Attributes: palette 0, no flip, behind background
         ppu.oam_data[3] = 10; // X position
 
-        renderer.render_frame(&ppu, &memory);
+        renderer.render_frame(&ppu, &mut memory);
 
         // Check that sprite is visible at (10, 10)
         let idx = (10 * 256 + 10) * 3;
@@ -927,7 +955,7 @@ mod tests {
         ppu.oam_data[0] = 20; // Y position
         ppu.oam_data[3] = 20; // X position
 
-        renderer.render_frame(&ppu, &memory);
+        renderer.render_frame(&ppu, &mut memory);
 
         // Check that sprite is no longer visible at (10, 10)
         let idx = (10 * 256 + 10) * 3;

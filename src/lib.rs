@@ -91,7 +91,7 @@ impl Emulator {
 
     pub fn force_render(&mut self) {
         self.renderer
-            .render_frame(&self.system.ppu, &self.system.bus);
+            .render_frame(&self.system.ppu, &mut self.system.bus);
     }
 
     pub fn pixel_data(&self) -> &RawFramebuffer {
