@@ -22,11 +22,11 @@ impl Joypad {
 
     pub fn read(&mut self) -> u8 {
         if self.button_index > 7 {
-            return 1;
+            return 0;
         }
 
         let response = (self.button_status.bits() & (1 << self.button_index)) >> self.button_index;
-        if !self.strobe && self.button_index <= 7 {
+        if !self.strobe && self.button_index < 7 {
             self.button_index += 1;
         }
 
