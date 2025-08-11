@@ -161,6 +161,18 @@ impl Ppu {
     pub fn mask(&self) -> MaskFlags {
         self.registers.mask.value()
     }
+
+    pub fn control(&self) -> ControlFlags {
+        self.registers.control.value()
+    }
+
+    pub fn scroll_x(&self) -> u8 {
+        self.registers.scroll.scroll_x
+    }
+
+    pub fn scroll_y(&self) -> u8 {
+        self.registers.scroll.scroll_y
+    }
 }
 
 pub struct Registers {
