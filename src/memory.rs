@@ -7,6 +7,173 @@ const NES_TAG: [u8; 4] = [0x4E, 0x45, 0x53, 0x1A];
 const PRG_ROM_PAGE_SIZE: usize = 0x4000;
 const CHR_ROM_PAGE_SIZE: usize = 0x2000;
 
+/// MMC1 Memory Management Controller
+/// Supports bank switching for PRG ROM and CHR ROM
+pub struct MMC1 {
+    // Shift register for loading control values
+    shift_register: u8,
+    shift_count: u8,
+
+    // Control register (0x8000-0x9FFF)
+    control: u8,
+
+    // CHR bank 0 (0xA000-0xBFFF)
+    chr_bank0: u8,
+
+    // CHR bank 1 (0xC000-0xDFFF)
+    chr_bank1: u8,
+
+    // PRG bank (0xE000-0xFFFF)
+    prg_bank: u8,
+
+    // Original ROM data
+    prg_rom: Vec<u8>,
+    chr_rom: Vec<u8>,
+    mirroring: Mirroring,
+}
+
+impl MMC1 {
+    fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        Self {
+            shift_register: 0,
+            shift_count: 0,
+            control: 0x0C, // Default: 32KB PRG ROM, 8KB CHR ROM, horizontal mirroring
+            chr_bank0: 0,
+            chr_bank1: 0,
+            prg_bank: 0,
+            prg_rom,
+            chr_rom,
+            mirroring,
+        }
+    }
+
+    fn write_register(&mut self, addr: u16, value: u8) {
+        // MMC1 uses a shift register mechanism
+        if value & 0x80 != 0 {
+            // Reset shift register
+            self.shift_register = 0;
+            self.shift_count = 0;
+            self.control |= 0x0C; // Set default values
+            return;
+        }
+
+        // Load bit into shift register
+        self.shift_register = (self.shift_register >> 1) | ((value & 1) << 4);
+        self.shift_count += 1;
+
+        if self.shift_count == 5 {
+            // Complete 5-bit value loaded, write to appropriate register
+            match addr {
+                0x8000..=0x9FFF => {
+                    self.control = self.shift_register & 0x1F;
+                    // Update mirroring when control register changes
+                    self.mirroring = self.get_mirroring();
+                }
+                0xA000..=0xBFFF => {
+                    self.chr_bank0 = self.shift_register & 0x1F;
+                }
+                0xC000..=0xDFFF => {
+                    self.chr_bank1 = self.shift_register & 0x1F;
+                }
+                0xE000..=0xFFFF => {
+                    self.prg_bank = self.shift_register & 0x0F;
+                }
+                _ => {}
+            }
+
+            // Reset shift register
+            self.shift_register = 0;
+            self.shift_count = 0;
+        }
+    }
+
+    fn read_prg(&self, addr: u16) -> u8 {
+        let bank_mode = (self.control >> 2) & 0x3;
+        let prg_addr = match bank_mode {
+            0 | 1 => {
+                // 32KB mode: ignore lowest bit of bank number
+                let bank = ((self.prg_bank & 0x0E) >> 1) as usize;
+                let offset = (addr - 0x8000) as usize;
+                bank * PRG_ROM_PAGE_SIZE * 2 + offset
+            }
+            2 => {
+                // Fix first bank at 0x8000, switch second bank
+                if addr < 0xC000 {
+                    // First bank (fixed)
+                    (addr - 0x8000) as usize
+                } else {
+                    // Second bank (switchable)
+                    let bank = (self.prg_bank & 0x0F) as usize;
+                    let offset = (addr - 0xC000) as usize;
+                    bank * PRG_ROM_PAGE_SIZE + offset
+                }
+            }
+            3 => {
+                // Switch first bank, fix last bank
+                if addr < 0xC000 {
+                    // First bank (switchable)
+                    let bank = (self.prg_bank & 0x0F) as usize;
+                    let offset = (addr - 0x8000) as usize;
+                    bank * PRG_ROM_PAGE_SIZE + offset
+                } else {
+                    // Last bank (fixed)
+                    let last_bank = (self.prg_rom.len() / PRG_ROM_PAGE_SIZE) - 1;
+                    let offset = (addr - 0xC000) as usize;
+                    last_bank * PRG_ROM_PAGE_SIZE + offset
+                }
+            }
+            _ => unreachable!(),
+        };
+
+        if prg_addr < self.prg_rom.len() {
+            self.prg_rom[prg_addr]
+        } else {
+            0xFF // Return 0xFF for out-of-bounds reads
+        }
+    }
+
+    fn read_chr(&self, addr: u16) -> u8 {
+        let chr_mode = (self.control >> 4) & 0x1;
+        let chr_addr = match chr_mode {
+            0 => {
+                // 8KB mode: single 8KB bank
+                let bank = ((self.chr_bank0 & 0x1E) >> 1) as usize;
+                bank * CHR_ROM_PAGE_SIZE + addr as usize
+            }
+            1 => {
+                // 4KB mode: two 4KB banks
+                if addr < 0x1000 {
+                    // First 4KB bank
+                    let bank = (self.chr_bank0 & 0x1F) as usize;
+                    bank * (CHR_ROM_PAGE_SIZE / 2) + addr as usize
+                } else {
+                    // Second 4KB bank
+                    let bank = (self.chr_bank1 & 0x1F) as usize;
+                    let offset = (addr - 0x1000) as usize;
+                    bank * (CHR_ROM_PAGE_SIZE / 2) + offset
+                }
+            }
+            _ => unreachable!(),
+        };
+
+        if chr_addr < self.chr_rom.len() {
+            self.chr_rom[chr_addr]
+        } else {
+            0 // Return 0 for out-of-bounds reads
+        }
+    }
+
+    fn get_mirroring(&self) -> Mirroring {
+        match self.control & 0x3 {
+            0 => Mirroring::OneScreenLower,
+            1 => Mirroring::OneScreenUpper,
+            2 => Mirroring::Vertical,
+            3 => Mirroring::Horizontal,
+            _ => unreachable!(),
+        }
+    }
+}
+
 pub trait Memory {
     fn read_u8(&mut self, addr: u16) -> u8;
     fn write_u8(&mut self, addr: u16, value: u8);
@@ -129,18 +296,32 @@ pub enum Mirroring {
     Vertical,
     Horizontal,
     FourScreen,
+    OneScreenLower,
+    OneScreenUpper,
 }
 
 pub struct MemoryBus {
     pub ram: [u8; 0x800],
     pub rom: Rom,
+    pub mmc1: Option<MMC1>,
 }
 
 impl MemoryBus {
     pub fn default_with_rom(rom: Rom) -> Self {
+        let mmc1 = if rom.mapper == 1 {
+            Some(MMC1::new(
+                rom.prg_rom.clone(),
+                rom.chr_rom.clone(),
+                rom.mirroring,
+            ))
+        } else {
+            None
+        };
+
         MemoryBus {
             ram: [0; 0x800],
             rom,
+            mmc1,
         }
     }
 
@@ -199,7 +380,22 @@ impl Memory for MemorySnapshot<'_> {
             }
             0x2002 => self.ppu.read_and_clear_status_register().bits(),
             0x2004 => todo!("Read PPU OAM data"),
-            0x2007 => self.ppu.read_from_data_segment(&self.bus.rom.chr_rom),
+            0x2007 => {
+                if let Some(ref mmc1) = self.bus.mmc1 {
+                    // Create a temporary buffer with the current CHR ROM state through the mapper
+                    let mut chr_buffer = vec![0u8; 0x2000];
+                    for i in 0..0x2000 {
+                        chr_buffer[i] = mmc1.read_chr(i as u16);
+                    }
+                    // Update PPU mirroring if it has changed
+                    if mmc1.mirroring != self.bus.rom.mirroring {
+                        self.ppu.update_mirroring(mmc1.mirroring);
+                    }
+                    self.ppu.read_from_data_segment(&chr_buffer)
+                } else {
+                    self.ppu.read_from_data_segment(&self.bus.rom.chr_rom)
+                }
+            }
             0x2008..=0x3FFF => {
                 let mirror_down_addr = addr & 0b00100000_00000111;
                 self.read_u8(mirror_down_addr)
@@ -208,21 +404,32 @@ impl Memory for MemorySnapshot<'_> {
                 // TODO: Implement the APU
                 0xFF
             }
-
             0x4016 => self.joypad.read(),
             0x4017 => {
                 /* Ignore joypad2 */
                 0
             }
-            0x8000..=0xFFFF => {
-                let mut addr = addr - 0x8000;
-                if self.bus.rom.prg_rom.len() == 0x4000 && addr >= 0x4000 {
-                    addr = addr % 0x4000;
-                }
-
-                self.bus.rom.prg_rom[addr as usize]
+            0x4018..=0x401F => {
+                // TODO: Implement the APU
+                0xFF
             }
-            _ => panic!("Invalid read: 0x{:04X}", addr),
+            0x4020..=0x7FFF => {
+                // Expansion ROM - return 0xFF (unused in most games)
+                0xFF
+            }
+            0x8000..=0xFFFF => {
+                if let Some(ref mmc1) = self.bus.mmc1 {
+                    mmc1.read_prg(addr)
+                } else {
+                    // Fallback to original logic for non-MMC1 mappers
+                    let mut addr = addr - 0x8000;
+                    if self.bus.rom.prg_rom.len() == 0x4000 && addr >= 0x4000 {
+                        addr = addr % 0x4000;
+                    }
+
+                    self.bus.rom.prg_rom[addr as usize]
+                }
+            }
         }
     }
 
@@ -275,13 +482,18 @@ impl Memory for MemorySnapshot<'_> {
             0x4018..=0x401F => {
                 // TODO: Implement the APU
             }
+            0x4020..=0x7FFF => {
+                // Expansion ROM - ignore writes (unused in most games)
+            }
             0x8000..=0xFFFF => {
                 match self.bus.rom.mapper {
                     0 => {
                         // NROM: ignore writes
                     }
                     1 => {
-                        todo!("Implement MMC1 write");
+                        if let Some(ref mut mmc1) = self.bus.mmc1 {
+                            mmc1.write_register(addr, value);
+                        }
                     }
                     2 => {
                         todo!("Implement UxROM bank switch");
@@ -291,7 +503,123 @@ impl Memory for MemorySnapshot<'_> {
                     }
                 }
             }
-            _ => panic!("Invalid write: {:#04X}", addr),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mmc1_creation() {
+        let prg_rom = vec![0xAA; 0x8000]; // 32KB PRG ROM
+        let chr_rom = vec![0xBB; 0x2000]; // 8KB CHR ROM
+        let mirroring = Mirroring::Horizontal;
+
+        let mmc1 = MMC1::new(prg_rom.clone(), chr_rom.clone(), mirroring);
+
+        assert_eq!(mmc1.control, 0x0C); // Default control value
+        assert_eq!(mmc1.chr_bank0, 0);
+        assert_eq!(mmc1.chr_bank1, 0);
+        assert_eq!(mmc1.prg_bank, 0);
+        assert_eq!(mmc1.mirroring, Mirroring::Horizontal);
+    }
+
+    #[test]
+    fn test_mmc1_shift_register() {
+        let prg_rom = vec![0xAA; 0x8000];
+        let chr_rom = vec![0xBB; 0x2000];
+        let mut mmc1 = MMC1::new(prg_rom, chr_rom, Mirroring::Horizontal);
+
+        // Write to control register (0x8000-0x9FFF)
+        // Write 5 bits: 10101 (0x15)
+        mmc1.write_register(0x8000, 1); // Bit 0
+        mmc1.write_register(0x8000, 0); // Bit 1
+        mmc1.write_register(0x8000, 1); // Bit 2
+        mmc1.write_register(0x8000, 0); // Bit 3
+        mmc1.write_register(0x8000, 1); // Bit 4
+
+        assert_eq!(mmc1.control, 0x15);
+        assert_eq!(mmc1.mirroring, Mirroring::OneScreenUpper); // 0x15 & 0x03 = 0x01
+    }
+
+    #[test]
+    fn test_mmc1_prg_banking() {
+        let mut prg_rom = vec![0; 0x8000]; // 32KB PRG ROM
+                                           // Set different values for each 16KB bank
+        for i in 0..0x4000 {
+            prg_rom[i] = 0xAA; // First bank
+            prg_rom[i + 0x4000] = 0xBB; // Second bank
+        }
+
+        let chr_rom = vec![0xCC; 0x2000];
+        let mut mmc1 = MMC1::new(prg_rom, chr_rom, Mirroring::Horizontal);
+
+        // Set control to mode 2 (fix first bank, switch second bank)
+        mmc1.control = 0x08; // 0x08 >> 2 = 0x02
+
+        // Test first bank (fixed at 0x8000-0xBFFF)
+        assert_eq!(mmc1.read_prg(0x8000), 0xAA);
+        assert_eq!(mmc1.read_prg(0xBFFF), 0xAA);
+
+        // Test second bank (switchable at 0xC000-0xFFFF)
+        mmc1.prg_bank = 0x01; // Switch to bank 1
+        assert_eq!(mmc1.read_prg(0xC000), 0xBB);
+        assert_eq!(mmc1.read_prg(0xFFFF), 0xBB);
+    }
+
+    #[test]
+    fn test_mmc1_chr_banking() {
+        let prg_rom = vec![0xDD; 0x8000];
+        let mut chr_rom = vec![0; 0x4000]; // 16KB CHR ROM (2 banks of 8KB)
+
+        // Set different values for each 4KB bank (not 8KB)
+        for i in 0..0x1000 {
+            chr_rom[i] = 0xAA; // First 4KB bank
+            chr_rom[i + 0x1000] = 0xBB; // Second 4KB bank
+            chr_rom[i + 0x2000] = 0xCC; // Third 4KB bank
+            chr_rom[i + 0x3000] = 0xDD; // Fourth 4KB bank
+        }
+
+        let mut mmc1 = MMC1::new(prg_rom, chr_rom, Mirroring::Horizontal);
+
+        // Set control to 4KB CHR mode
+        mmc1.control = 0x10; // 0x10 >> 4 = 0x01
+
+        // Test first 4KB bank
+        mmc1.chr_bank0 = 0x00;
+        assert_eq!(mmc1.read_chr(0x0000), 0xAA);
+        assert_eq!(mmc1.read_chr(0x0FFF), 0xAA);
+
+        // Test second 4KB bank
+        mmc1.chr_bank1 = 0x01;
+        assert_eq!(mmc1.read_chr(0x1000), 0xBB);
+        assert_eq!(mmc1.read_chr(0x1FFF), 0xBB);
+
+        // Test third 4KB bank
+        mmc1.chr_bank0 = 0x02;
+        assert_eq!(mmc1.read_chr(0x0000), 0xCC);
+        assert_eq!(mmc1.read_chr(0x0FFF), 0xCC);
+    }
+
+    #[test]
+    fn test_mmc1_mirroring_modes() {
+        let prg_rom = vec![0xEE; 0x8000];
+        let chr_rom = vec![0xFF; 0x2000];
+        let mut mmc1 = MMC1::new(prg_rom, chr_rom, Mirroring::Horizontal);
+
+        // Test different mirroring modes
+        mmc1.control = 0x00; // OneScreenLower
+        assert_eq!(mmc1.get_mirroring(), Mirroring::OneScreenLower);
+
+        mmc1.control = 0x01; // OneScreenUpper
+        assert_eq!(mmc1.get_mirroring(), Mirroring::OneScreenUpper);
+
+        mmc1.control = 0x02; // Vertical
+        assert_eq!(mmc1.get_mirroring(), Mirroring::Vertical);
+
+        mmc1.control = 0x03; // Horizontal
+        assert_eq!(mmc1.get_mirroring(), Mirroring::Horizontal);
     }
 }
