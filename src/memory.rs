@@ -190,7 +190,7 @@ impl Memory for MemorySnapshot<'_> {
                 let mirror_down_addr = addr & 0b00000111_11111111;
                 self.bus.ram[mirror_down_addr as usize]
             }
-            0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 | 0x4014 => {
+            0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => {
                 log::warn!(
                     "Attempt to read from write-only PPU register at 0x{:04X}",
                     addr
@@ -208,6 +208,7 @@ impl Memory for MemorySnapshot<'_> {
                 // TODO: Implement the APU
                 0xFF
             }
+
             0x4016 => self.joypad.read(),
             0x4017 => {
                 /* Ignore joypad2 */
@@ -241,6 +242,10 @@ impl Memory for MemorySnapshot<'_> {
             0x2003 => {
                 self.ppu.write_to_oam_address_register(value);
             }
+            0x2004 => {
+                // Write to PPU OAM data
+                self.ppu.write_oam_data(value);
+            }
             0x2005 => {
                 self.ppu.write_to_scroll_register(value);
             }
@@ -255,7 +260,14 @@ impl Memory for MemorySnapshot<'_> {
                 let mirror_down_addr = addr & 0x2007;
                 self.write_u8(mirror_down_addr, value);
             }
-            0x4000..0x4016 => {
+            0x4000..0x4014 => {
+                // TODO: Other IO controllers?
+            }
+            0x4014 => {
+                // OAM DMA - read 256 bytes from RAM and write to PPU OAM
+                self.ppu.oam_dma_transfer(value, &self.bus.ram);
+            }
+            0x4015..0x4016 => {
                 // TODO: Other IO controllers?
             }
             0x4016 => self.joypad.write(value),

@@ -156,10 +156,10 @@ impl ApplicationHandler<()> for App {
                     PhysicalKey::Code(KeyCode::KeyD) => Some(JoypadButton::RIGHT),
                     PhysicalKey::Code(KeyCode::KeyW) => Some(JoypadButton::UP),
                     PhysicalKey::Code(KeyCode::KeyS) => Some(JoypadButton::DOWN),
-                    PhysicalKey::Code(KeyCode::Period) => Some(JoypadButton::A),
-                    PhysicalKey::Code(KeyCode::Comma) => Some(JoypadButton::B),
+                    PhysicalKey::Code(KeyCode::KeyJ) => Some(JoypadButton::A),
+                    PhysicalKey::Code(KeyCode::KeyK) => Some(JoypadButton::B),
                     PhysicalKey::Code(KeyCode::Enter) => Some(JoypadButton::START),
-                    PhysicalKey::Code(KeyCode::ShiftRight) => Some(JoypadButton::SELECT),
+                    PhysicalKey::Code(KeyCode::Space) => Some(JoypadButton::SELECT),
                     _ => None,
                 };
 

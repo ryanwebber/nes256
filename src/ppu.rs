@@ -173,6 +173,27 @@ impl Ppu {
     pub fn scroll_y(&self) -> u8 {
         self.registers.scroll.scroll_y
     }
+
+    pub fn oam_address(&self) -> u8 {
+        self.registers.address.read() as u8
+    }
+
+    pub fn write_oam_data(&mut self, value: u8) {
+        let oam_addr = self.registers.address.read() as usize;
+        if oam_addr < 256 {
+            self.oam_data[oam_addr] = value;
+            // Auto-increment OAM address
+            self.registers.address.increment(1);
+        }
+    }
+
+    pub fn oam_dma_transfer(&mut self, base_addr: u8, ram: &[u8]) {
+        let base = (base_addr as usize) << 8;
+        for i in 0..256 {
+            let data = ram[(base + i) & 0x07FF];
+            self.oam_data[i] = data;
+        }
+    }
 }
 
 pub struct Registers {

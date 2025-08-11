@@ -1,4 +1,7 @@
-use crate::{memory::MemoryBus, ppu::Ppu};
+use crate::{
+    memory::MemoryBus,
+    ppu::{self, Ppu},
+};
 
 pub const FRAMEBUFFER_SIZE: usize = 256 * 240 * 3;
 
@@ -144,14 +147,15 @@ impl Renderer {
             2 => 0x2800,
             _ => 0x2C00,
         };
-        let background_pattern_base =
-            if control.contains(crate::ppu::ControlFlags::BACKROUND_PATTERN_ADDR) {
-                0x1000
-            } else {
-                0x0000
-            };
-        let sprite_pattern_base = if control.contains(crate::ppu::ControlFlags::SPRITE_PATTERN_ADDR)
+
+        let background_pattern_base = if control.contains(ppu::ControlFlags::BACKROUND_PATTERN_ADDR)
         {
+            0x1000
+        } else {
+            0x0000
+        };
+
+        let sprite_pattern_base = if control.contains(ppu::ControlFlags::SPRITE_PATTERN_ADDR) {
             0x1000
         } else {
             0x0000
@@ -161,7 +165,7 @@ impl Renderer {
         fb.fill(0);
 
         // Render background if enabled
-        if mask.contains(crate::ppu::MaskFlags::SHOW_BACKGROUND) {
+        if mask.contains(ppu::MaskFlags::SHOW_BACKGROUND) {
             Self::render_background(
                 fb,
                 ppu,
@@ -175,7 +179,7 @@ impl Renderer {
         }
 
         // Render sprites if enabled
-        if mask.contains(crate::ppu::MaskFlags::SHOW_SPRITES) {
+        if mask.contains(ppu::MaskFlags::SHOW_SPRITES) {
             Self::render_sprites(fb, ppu, chr, sprite_pattern_base, mask);
         }
     }
@@ -188,7 +192,7 @@ impl Renderer {
         pattern_base: u16,
         scroll_x: u8,
         scroll_y: u8,
-        mask: crate::ppu::MaskFlags,
+        mask: ppu::MaskFlags,
     ) {
         const WIDTH: usize = 256;
         const HEIGHT: usize = 240;
@@ -203,7 +207,7 @@ impl Renderer {
         let pixel_offset_y = (scroll_y as usize) % TILE_SIZE;
 
         // Check if we should clip leftmost 8 pixels
-        let clip_left = mask.contains(crate::ppu::MaskFlags::LEFTMOST_8PXL_BACKGROUND);
+        let clip_left = mask.contains(ppu::MaskFlags::LEFTMOST_8PXL_BACKGROUND);
         let start_x = if clip_left { 8 } else { 0 };
 
         for screen_y in 0..HEIGHT {
@@ -291,31 +295,29 @@ impl Renderer {
         ppu: &Ppu,
         chr: &[u8],
         pattern_base: u16,
-        mask: crate::ppu::MaskFlags,
+        mask: ppu::MaskFlags,
     ) {
         const WIDTH: usize = 256;
         const HEIGHT: usize = 240;
 
         // Get sprite size from control register
-        let sprite_size = if ppu
-            .control()
-            .contains(crate::ppu::ControlFlags::SPRITE_SIZE)
-        {
+        let sprite_size = if ppu.control().contains(ppu::ControlFlags::SPRITE_SIZE) {
             16 // 8x16 sprites
         } else {
             8 // 8x8 sprites
         };
 
         // Check if we should clip leftmost 8 pixels for sprites
-        let clip_left = mask.contains(crate::ppu::MaskFlags::LEFTMOST_8PXL_SPRITE);
+        let clip_left = mask.contains(ppu::MaskFlags::LEFTMOST_8PXL_SPRITE);
         let start_x = if clip_left { 8 } else { 0 };
 
         // Parse OAM data into sprites
         let mut sprites = Vec::new();
         for i in 0..64 {
             let sprite = Sprite::from_oam(&ppu.oam_data, i);
-            if sprite.y < 0xEF {
-                // Valid sprite Y position
+            // Valid sprite Y position: 0-239 for 8x8 sprites, 0-223 for 8x16 sprites
+            let max_y = if sprite_size == 16 { 223 } else { 239 };
+            if sprite.y <= max_y && sprite.y > 0 {
                 sprites.push(sprite);
             }
         }
@@ -331,6 +333,11 @@ impl Renderer {
 
             // Check if sprite is visible
             if sprite_y >= HEIGHT || sprite_x >= WIDTH {
+                continue;
+            }
+
+            // Skip sprites that are completely off-screen
+            if sprite_y + sprite_size > HEIGHT || sprite_x + 8 > WIDTH {
                 continue;
             }
 
@@ -355,6 +362,11 @@ impl Renderer {
                 };
                 let tile_y = pattern_y / 8;
                 let pixel_y = pattern_y % 8;
+
+                // Ensure we don't go beyond tile boundaries
+                if tile_y >= 2 && sprite_size == 16 {
+                    continue;
+                }
 
                 // Get tile pattern (for 8x16, we need two tiles)
                 let tile_addr = pattern_base as usize + (base_tile + tile_y) * 16;
@@ -432,7 +444,7 @@ impl Default for Framebuffer {
 mod tests {
     use super::*;
     use crate::memory::Mirroring;
-    use crate::ppu::{ControlFlags, MaskFlags, Ppu};
+    use ppu::{ControlFlags, MaskFlags, Ppu};
 
     fn create_test_ppu() -> Ppu {
         Ppu::new(Mirroring::Horizontal)
@@ -880,5 +892,53 @@ mod tests {
         assert_eq!(renderer.framebuffer.0[idx], 0); // R
         assert_eq!(renderer.framebuffer.0[idx + 1], 0); // G
         assert_eq!(renderer.framebuffer.0[idx + 2], 0); // B
+    }
+
+    #[test]
+    fn test_sprite_oam_updates() {
+        let mut renderer = Renderer::new();
+        let mut ppu = create_test_ppu();
+        let mut memory = create_test_memory();
+
+        // Set up test CHR ROM
+        memory.rom.chr_rom = create_test_chr_rom();
+
+        // Set up sprite palette: make color 1 bright green
+        ppu.palettes[0x11] = 0x3A; // Bright green
+
+        // Enable sprite rendering
+        ppu.write_to_mask_register(MaskFlags::SHOW_SPRITES);
+
+        // First render: sprite at position (10, 10)
+        ppu.oam_data[0] = 10; // Y position
+        ppu.oam_data[1] = 0; // Tile index
+        ppu.oam_data[2] = 0x00; // Attributes: palette 0, no flip, behind background
+        ppu.oam_data[3] = 10; // X position
+
+        renderer.render_frame(&ppu, &memory);
+
+        // Check that sprite is visible at (10, 10)
+        let idx = (10 * 256 + 10) * 3;
+        assert_eq!(renderer.framebuffer.0[idx], NES_COLORS[58][0]); // R
+        assert_eq!(renderer.framebuffer.0[idx + 1], NES_COLORS[58][1]); // G
+        assert_eq!(renderer.framebuffer.0[idx + 2], NES_COLORS[58][2]); // B
+
+        // Update sprite position to (20, 20)
+        ppu.oam_data[0] = 20; // Y position
+        ppu.oam_data[3] = 20; // X position
+
+        renderer.render_frame(&ppu, &memory);
+
+        // Check that sprite is no longer visible at (10, 10)
+        let idx = (10 * 256 + 10) * 3;
+        assert_eq!(renderer.framebuffer.0[idx], 0); // R
+        assert_eq!(renderer.framebuffer.0[idx + 1], 0); // G
+        assert_eq!(renderer.framebuffer.0[idx + 2], 0); // B
+
+        // Check that sprite is now visible at (20, 20)
+        let idx = (20 * 256 + 20) * 3;
+        assert_eq!(renderer.framebuffer.0[idx], NES_COLORS[58][0]); // R
+        assert_eq!(renderer.framebuffer.0[idx + 1], NES_COLORS[58][1]); // G
+        assert_eq!(renderer.framebuffer.0[idx + 2], NES_COLORS[58][2]); // B
     }
 }
